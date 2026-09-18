@@ -15,6 +15,9 @@ HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8010/api/health}"
 
 cd "$APP_DIR"
 
+# root 操作 www 目录时，git 会因「dubious ownership」拒绝执行，这里显式放行该目录
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+
 echo "==> 当前版本：$(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
 git pull --ff-only
 "$APP_DIR/venv/bin/pip" install --quiet --disable-pip-version-check -r requirements.txt
