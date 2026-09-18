@@ -177,9 +177,10 @@ class Room:
         self.round_index += 1
         self.deadline = time.monotonic() + self.prepare_timeout
         self.phase = Phase.PREPARING
-        for player in self.players:
+        pools = rules.generate_pools(self.rng)
+        for player, pool in zip(self.players, pools, strict=True):
             player.reset_for_round()
-            player.pool = rules.generate_pool(self.rng)
+            player.pool = pool
         self.touch()
 
         outgoings: list[Outgoing] = []

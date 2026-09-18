@@ -45,9 +45,11 @@ def test_battle_is_reproducible_with_same_seed():
 
 
 def test_initiative_uses_total_and_lower_goes_first():
-    # 先手值：均衡战士A=5、狂战士=5 → 平手；铁甲卫士=6 让 B 队总和更高
+    # 直接指定先手值，避免测试被平衡调整牵动
     team_a = [make_fighter(BALANCE_A, 0, 0)]
     team_b = [make_fighter(HEAVY_ARMOR, 1, 0)]
+    team_a[0].initiative = 3
+    team_b[0].initiative = 9
     battle = make_battle(team_a, team_b)
     battle._battle_start()
     assert battle.order == [0, 1]
@@ -104,7 +106,7 @@ def test_explosive_kills_fragile_target_and_self():
 
 def test_explosive_deals_normal_damage_to_sturdy_target():
     bomber = make_fighter(EXPLOSIVE, 0, 0)
-    sturdy = make_fighter(HEAVY_ARMOR, 1, 0)  # 最大生命 30 > 26
+    sturdy = make_fighter(HEAVY_ARMOR, 1, 0, hp=C.EXPLOSIVE_KILL_MAX_HP + 2)  # 高于自爆击杀线
     battle = make_battle([bomber], [sturdy])
     battle.run()
 

@@ -198,6 +198,7 @@ class TagRuntime:
     modify_incoming: Callable[[Battle, Fighter, Fighter, int, HitContext], int] | None = None
     on_hit: Callable[[Battle, Fighter, Fighter, int, HitContext], None] | None = None
     on_damaged: Callable[[Battle, Fighter, Fighter, int, HitContext], None] | None = None
+    target_selector: Callable[[Battle, Fighter], Fighter | None] | None = None
 
     hooks: list[str] = field(default_factory=list)
 
@@ -236,6 +237,21 @@ def _pierce_on_hit(battle: Battle, attacker: Fighter, target: Fighter, dealt: in
 
 def _curse_on_battle_start(battle: Battle, owner: Fighter) -> None:
     battle.resolve_curse(owner)
+
+
+def _explosive_target(battle: Battle, attacker: Fighter) -> Fighter | None:
+    """自爆步兵的战术选择：优先炸掉「能被直接击杀」里攻击力最高的敌人。
+
+    没有可击杀目标时返回 None，交回玩家设定的攻击策略。
+    """
+
+    enemies = battle.alive(battle.opponent_team(attacker.team))
+    if not enemies:
+        return None
+    killable = [f for f in enemies if f.max_hp <= C.EXPLOSIVE_KILL_MAX_HP]
+    if not killable:
+        return None
+    return max(killable, key=lambda f: (f.atk, f.hp, -f.slot))
 
 
 def _lifesteal_on_hit(battle: Battle, attacker: Fighter, target: Fighter, dealt: int, ctx: HitContext) -> None:
@@ -296,6 +312,7 @@ RUNTIME: dict[str, TagRuntime] = {
         explosive_kill_max_hp=C.EXPLOSIVE_KILL_MAX_HP,
         damage_ignores_shield=True,
         damage_ignores_reflect=True,
+        target_selector=_explosive_target,
         hooks=["self_destruct_after_attack", "explosive_kill"],
     ),
     "curse": TagRuntime(key="curse", on_battle_start=_curse_on_battle_start, hooks=["on_battle_start"]),

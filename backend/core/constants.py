@@ -9,6 +9,13 @@ from __future__ import annotations
 # ---------------------------------------------------------------- 对局结构
 # 每局角色池大小（6 选 3）
 POOL_SIZE = 6
+# 抽池机制：双方共用卡池抽 POOL_SIZE*2 张后对半切，因此两人不会拿到同一名角色
+MIN_TAGGED_PER_POOL = 2        # 每个池子至少要有几名带标签的角色，保证有构筑空间
+MAX_SAME_TAG_PER_POOL = 2      # 同一标签在单个池子里最多出现几次，避免池子过度同质
+POOL_FAIRNESS_TRIES = 400      # 抽取均衡池子的最大尝试次数
+INITIATIVE_TOLERANCE = 4       # 双方池子先手值总和的允许差距
+HP_TOLERANCE_RATIO = (12, 100)   # 双方池子总生命的允许差距（比例）
+ATK_TOLERANCE_RATIO = (15, 100)  # 双方池子总攻击的允许差距（比例）
 # 每局出战角色数量
 TEAM_SIZE = 3
 # 每局增益次数
@@ -29,30 +36,30 @@ MAX_ROUNDS_PER_DUEL = 50
 MAX_BATTLE_EVENTS = 2000
 
 # ---------------------------------------------------------------- 标签数值
-# 自爆：目标最大生命 <= 26 时直接击杀（v1.1 由 24 调整为 26）
-EXPLOSIVE_KILL_MAX_HP = 26
+# 自爆：目标最大生命 <= 30 时直接击杀（v0.4.0 由 26 上调，补偿自爆步兵的弱势）
+EXPLOSIVE_KILL_MAX_HP = 30
 # 脆皮判定线：最大生命 <= 24 触发箭矢穿透的追击
 FRAGILE_MAX_HP = 24
 # 穿透追击伤害比例：半伤
 PIERCE_SCALE = (1, 2)
-# 死灵法师复活次数
-NECROMANCY_CHARGES = 2
-# 复活血量比例：最大生命的 40%（向下取整）
-NECROMANCY_SCALE = (2, 5)
+# 死灵法师复活次数（v0.4.0 由 2 下调为 1：对拍显示 2 次的胜率高达 79%）
+NECROMANCY_CHARGES = 1
+# 复活血量比例：最大生命的 30%（向下取整，v0.4.0 由 40% 下调）
+NECROMANCY_SCALE = (3, 10)
 # 护盾分担比例：50%
 SHIELD_SCALE = (1, 2)
-# 护盾可分担的次数
-SHIELD_CHARGES = 3
+# 护盾可分担的次数（v0.4.0 由 3 上调为 4：对拍显示 3 次时护盾部署者只有 33% 胜率）
+SHIELD_CHARGES = 4
 # 重装盔甲触发线：单次伤害 >= 7 时减伤
 HEAVY_ARMOR_THRESHOLD = 7
-# 重装盔甲结算比例：60%
-HEAVY_ARMOR_SCALE = (6, 10)
+# 重装盔甲结算比例：70%（v0.4.0 由 60% 上调：对拍显示重装系角色长期压着别人打）
+HEAVY_ARMOR_SCALE = (7, 10)
 # 狂暴触发线：自身血量 <= 14
 BERSERK_THRESHOLD = 14
 # 狂暴结算比例：140%
 BERSERK_SCALE = (14, 10)
-# 中毒：每层每轮伤害
-POISON_DAMAGE = 3
+# 中毒：每层每轮伤害（v0.4.0 由 3 下调为 2：毒药投手胜率 60%）
+POISON_DAMAGE = 2
 # 中毒：每层持续轮数
 POISON_DURATION = 3
 # 中毒：最大叠加层数

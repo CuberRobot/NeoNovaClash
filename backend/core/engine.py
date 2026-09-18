@@ -186,7 +186,15 @@ class Battle:
                 self.resolve_attack(attacker, target)
             return
 
-        target = self.choose_target(attacker)
+        # 标签可以覆盖目标选择（例如自爆步兵优先炸可击杀的高攻目标）
+        target = None
+        for runtime in runtimes:
+            if runtime.target_selector is not None:
+                target = runtime.target_selector(self, attacker)
+                if target is not None:
+                    break
+        if target is None:
+            target = self.choose_target(attacker)
         if target is None:
             return
         self.resolve_attack(attacker, target)

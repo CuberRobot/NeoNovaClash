@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 from collections import Counter
+from itertools import combinations
 
 from . import constants as C
 from . import tags as taglib
@@ -42,6 +43,103 @@ def generate_pool(rng: random.Random) -> list[Character]:
     """为一名玩家抽取本局角色池（从当前启用的角色中随机 6 名，不重复）。"""
 
     return rng.sample(list(roster()), C.POOL_SIZE)
+
+
+def generate_pools(rng: random.Random) -> tuple[list[Character], list[Character]]:
+    """本局双方的 6 张角色池。
+
+    抽取机制：
+    1. 从卡池里**均匀**抽 POOL_SIZE*2 == 12 张（不重复，保证每名角色的出场概率一致）；
+    2. 在 12 张的所有对半切分（462 种）里，挑一个最公平的切法：
+       - 硬性条件：每个池子至少有 MIN_TAGGED_PER_POOL 名带标签的角色、
+         同一标签最多 MAX_SAME_TAG_PER_POOL 名；
+       - 软性条件：两个池子的先手值总和、总生命、总攻击最接近。
+    3. 因此双方不会拿到同一名角色，也不会出现「一边四个坦克、一边四个脆皮」的碾压池。
+
+    均匀抽样 + 枚举切分是刻意分开的：如果只用「反复重抽直到公平」，
+    像自爆步兵这种数值离群的角色会因为拖低公平分数而被系统性筛掉，
+    导致它的实际出场率远低于其他角色。
+    """
+
+    pool_size = C.POOL_SIZE
+    drawn = rng.sample(list(roster()), pool_size * 2)
+
+    best: tuple[int, list[Character], list[Character]] | None = None
+    fallback: tuple[int, list[Character], list[Character]] | None = None
+    indexes = range(len(drawn))
+    for combo in combinations(indexes, pool_size):
+        chosen_indexes = set(combo)
+        first = [drawn[i] for i in combo]
+        second = [drawn[i] for i in indexes if i not in chosen_indexes]
+        gap = _pool_gap_score(first, second)
+        if fallback is None or gap < fallback[0]:
+            fallback = (gap, first, second)
+        if not (_pool_has_build_space(first) and _pool_has_build_space(second)):
+            continue
+        if best is None or gap < best[0]:
+            best = (gap, first, second)
+        # 已经足够公平就不必继续枚举，省下计算
+        if _pools_are_fair(first, second):
+            break
+
+    chosen = best or fallback
+    if chosen is None:  # pragma: no cover - 卡池小于 2*POOL_SIZE 时才会发生
+        return _sorted_pool(drawn[:pool_size]), _sorted_pool(drawn[pool_size:])
+    _gap, first, second = chosen
+    return _sorted_pool(first), _sorted_pool(second)
+
+
+def _sorted_pool(pool: list[Character]) -> list[Character]:
+    """按编号排序，让前端卡片顺序稳定、方便对照。"""
+
+    return sorted(pool, key=lambda character: character.id)
+
+
+def _pool_has_build_space(pool: list[Character]) -> bool:
+    tagged = [c for c in pool if c.tag != NONE_TAG]
+    if len(tagged) < C.MIN_TAGGED_PER_POOL:
+        return False
+    counts = Counter(c.tag for c in tagged)
+    return all(count <= C.MAX_SAME_TAG_PER_POOL for count in counts.values())
+
+
+def _pool_gap_score(first: list[Character], second: list[Character]) -> int:
+    """池子强弱差距的粗略度量，数值越小越公平。"""
+
+    def total(pool: list[Character]) -> tuple[int, int, int]:
+        return (
+            sum(c.initiative for c in pool),
+            sum(c.hp for c in pool),
+            sum(c.atk for c in pool),
+        )
+
+    initiative_a, hp_a, atk_a = total(first)
+    initiative_b, hp_b, atk_b = total(second)
+    return (
+        abs(initiative_a - initiative_b) * 10
+        + abs(hp_a - hp_b) * 2
+        + abs(atk_a - atk_b) * 4
+    )
+
+
+def _pools_are_fair(first: list[Character], second: list[Character]) -> bool:
+    def total(pool: list[Character], pick) -> int:
+        return sum(pick(c) for c in pool)
+
+    def within(ratio: tuple[int, int], value_a: int, value_b: int) -> bool:
+        base = max(value_a, value_b, 1)
+        return abs(value_a - value_b) * ratio[1] <= base * ratio[0]
+
+    initiative_a = total(first, lambda c: c.initiative)
+    initiative_b = total(second, lambda c: c.initiative)
+    hp_a, hp_b = total(first, lambda c: c.hp), total(second, lambda c: c.hp)
+    atk_a, atk_b = total(first, lambda c: c.atk), total(second, lambda c: c.atk)
+
+    return (
+        abs(initiative_a - initiative_b) <= C.INITIATIVE_TOLERANCE
+        and within(C.HP_TOLERANCE_RATIO, hp_a, hp_b)
+        and within(C.ATK_TOLERANCE_RATIO, atk_a, atk_b)
+    )
 
 
 def pool_payload(pool: list[Character]) -> list[dict]:

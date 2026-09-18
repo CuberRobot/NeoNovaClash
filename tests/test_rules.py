@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections import Counter
 
 import pytest
 
@@ -165,6 +166,34 @@ def test_roster_is_complete_and_every_tag_is_implemented():
             assert taglib.get_runtime(character.tag) is not None, character.name
 
 
+def test_roster_keeps_every_character_distinct():
+    """防止平衡调整把角色越调越像：面板组合、同标签角色的曲线都要有区分度。"""
+
+    characters = rules.roster()
+
+    # 1) 不允许出现完全相同的（攻击, 生命, 先手值）三元组
+    triples = [(c.atk, c.hp, c.initiative) for c in characters]
+    assert len(set(triples)) == len(triples)
+
+    # 2) 不允许出现完全相同的（攻击, 生命）面板
+    panels = [(c.atk, c.hp) for c in characters]
+    assert len(set(panels)) == len(panels)
+
+    # 3) 同一标签下的角色必须有不同的面板曲线（同一个标签也要有强弱差别）
+    by_tag: dict[str, list[tuple[int, int]]] = {}
+    for character in characters:
+        if character.tag == "none":
+            continue
+        by_tag.setdefault(character.tag, []).append((character.atk, character.hp))
+    for tag, tag_panels in by_tag.items():
+        assert len(set(tag_panels)) == len(tag_panels), tag
+
+    # 4) 无标签角色要构成一条「攻击递减、生命递增」的连续曲线，而不是五个一模一样的白板
+    plain = sorted((c for c in characters if c.tag == "none"), key=lambda c: -c.atk)
+    assert [c.atk for c in plain] == sorted({c.atk for c in plain}, reverse=True)
+    assert [c.hp for c in plain] == sorted({c.hp for c in plain})
+
+
 def test_pool_only_contains_characters_from_active_roster():
     rng = random.Random(77)
     active_ids = {c.id for c in rules.roster()}
@@ -172,3 +201,62 @@ def test_pool_only_contains_characters_from_active_roster():
     for _ in range(50):
         pool = rules.generate_pool(rng)
         assert {c.id for c in pool} <= active_ids
+
+
+# ---------------------------------------------------------------- 抽取机制
+
+
+def test_generate_pools_are_disjoint_and_well_formed():
+    rng = random.Random(5)
+    for _ in range(300):
+        first, second = rules.generate_pools(rng)
+
+        assert len(first) == C.POOL_SIZE and len(second) == C.POOL_SIZE
+        ids_first = {c.id for c in first}
+        ids_second = {c.id for c in second}
+        assert not (ids_first & ids_second), "双方不应该拿到同一名角色"
+
+        for pool in (first, second):
+            tagged = [c for c in pool if c.tag != "none"]
+            assert len(tagged) >= C.MIN_TAGGED_PER_POOL
+            counts = Counter(c.tag for c in tagged)
+            assert max(counts.values()) <= C.MAX_SAME_TAG_PER_POOL
+
+
+def test_generate_pools_are_reproducible():
+    first_a, second_a = rules.generate_pools(random.Random(99))
+    first_b, second_b = rules.generate_pools(random.Random(99))
+
+    assert [c.id for c in first_a] == [c.id for c in first_b]
+    assert [c.id for c in second_a] == [c.id for c in second_b]
+
+
+def test_generate_pools_keep_the_two_sides_close_in_strength():
+    rng = random.Random(11)
+    initiative_gaps = []
+    hp_gaps = []
+    for _ in range(300):
+        first, second = rules.generate_pools(rng)
+        initiative_gaps.append(abs(sum(c.initiative for c in first) - sum(c.initiative for c in second)))
+        hp_gaps.append(abs(sum(c.hp for c in first) - sum(c.hp for c in second)))
+
+    assert sum(initiative_gaps) / len(initiative_gaps) < 3
+    assert max(initiative_gaps) <= 10
+    assert sum(hp_gaps) / len(hp_gaps) < 12
+
+
+def test_every_character_is_drawn_at_a_similar_rate():
+    """防止「公平性筛选」把某类离群角色系统性筛掉（曾经出现过自爆步兵只有 17.8% 的情况）。"""
+
+    rng = random.Random(2024)
+    rounds = 400
+    counter: Counter[int] = Counter()
+    for _ in range(rounds):
+        for pool in rules.generate_pools(rng):
+            for character in pool:
+                counter[character.id] += 1
+
+    expected = rounds * C.POOL_SIZE * 2 / len(rules.roster())
+    for character in rules.roster():
+        drawn = counter[character.id]
+        assert abs(drawn - expected) / expected < 0.25, f"{character.name} 的抽取比例偏离过大：{drawn}"
