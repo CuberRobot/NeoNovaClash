@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from . import __version__
 from .core import constants as C
-from .core import rules
+from .core import modes, rules
 from .core import tags as taglib
 from .core.characters import roster
 from .core.models import Bonus, Plan, Strategy
@@ -44,6 +44,7 @@ def _clean_name(value: str) -> str:
 class CreateRoomMessage(BaseModel):
     type: Literal["create_room"]
     name: str
+    mode: str | None = None
 
     _clean = field_validator("name")(_clean_name)
 
@@ -84,6 +85,7 @@ class SubmitPlanMessage(BaseModel):
 class JoinRandomMessage(BaseModel):
     type: Literal["join_random"]
     name: str
+    mode: str | None = None
 
     _clean = field_validator("name")(_clean_name)
 
@@ -199,8 +201,8 @@ def pong() -> dict:
     return {"type": "pong"}
 
 
-def matchmaking_waiting(queue_size: int) -> dict:
-    return {"type": "matchmaking_waiting", "queue_size": queue_size}
+def matchmaking_waiting(queue_size: int, mode: str = modes.DEFAULT_MODE_KEY) -> dict:
+    return {"type": "matchmaking_waiting", "queue_size": queue_size, "mode": mode}
 
 
 def matchmaking_cancelled() -> dict:
@@ -216,7 +218,8 @@ def version_payload() -> dict:
         "name": SERVER_NAME,
         "version": __version__,
         "protocol": PROTOCOL_VERSION,
-        "mode": "standard",
+        "mode": modes.DEFAULT_MODE_KEY,
+        "modes": [mode.key for mode in modes.available_modes()],
         "rules_version": "v1.0",
     }
 
@@ -253,4 +256,5 @@ def rules_payload() -> dict:
         ],
         "tags": [spec.to_dict() for spec in taglib.TAGS.values()],
         "strategies": rules.available_strategies(),
+        "modes": [mode.to_dict() for mode in modes.available_modes()],
     }

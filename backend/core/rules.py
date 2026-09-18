@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import random
 from collections import Counter
+from dataclasses import dataclass
 from itertools import combinations
 
 from . import constants as C
+from . import modes
 from . import tags as taglib
-from .characters import Character, get_character, roster
+from .characters import Character, roster
 from .engine import run_battle
 from .models import (
     BONUS_ATK,
@@ -38,14 +40,146 @@ class RuleError(ValueError):
         self.field = field
 
 
+@dataclass(frozen=True)
+class PoolCard:
+    """角色池里的一张卡：角色 + 本局实际生效的标签。
+
+    标准模式下标签就是角色自带的标签；混沌模式下标签是随机分配的，
+    因此同一名角色在不同对局里可能是完全不同的战术角色。
+    """
+
+    character: Character
+    tags: tuple[str, ...] = ()
+
+    @property
+    def id(self) -> int:
+        return self.character.id
+
+    @property
+    def name(self) -> str:
+        return self.character.name
+
+    # 下面几个属性只是转发角色数据，方便调用方按"角色"的方式读池子里的卡
+    @property
+    def role(self) -> str:
+        return self.character.role
+
+    @property
+    def atk(self) -> int:
+        return self.character.atk
+
+    @property
+    def hp(self) -> int:
+        return self.character.hp
+
+    @property
+    def initiative(self) -> int:
+        return self.character.initiative
+
+    @property
+    def domain(self) -> str:
+        return self.character.domain
+
+    @property
+    def tag(self) -> str:
+        """兼容单标签读取：取第一个标签，没有则返回 none。"""
+
+        return self.tags[0] if self.tags else NONE_TAG
+
+    @property
+    def place_first(self) -> bool:
+        return any(taglib.get_spec(tag).place_first for tag in self.tags)
+
+    def has(self, tag: str) -> bool:
+        return tag in self.tags
+
+    def to_dict(self) -> dict:
+        character = self.character
+        specs = [taglib.get_spec(tag) for tag in self.tags]
+        names = [spec.name for spec in specs]
+        return {
+            "id": character.id,
+            "name": character.name,
+            "role": character.role,
+            "atk": character.atk,
+            "hp": character.hp,
+            "initiative": character.initiative,
+            "domain": character.domain,
+            "lore": character.lore,
+            # 本局实际生效的标签（可能有 0 个、1 个或多个）
+            "tags": list(self.tags),
+            "tag_names": names,
+            "tag_summaries": [spec.summary for spec in specs],
+            # 兼容单标签字段：前端老代码只读这两个也能正常显示
+            "tag": self.tags[0] if self.tags else NONE_TAG,
+            "tag_name": " / ".join(names) if names else taglib.get_spec(NONE_TAG).name,
+            "tag_summary": " ".join(spec.summary for spec in specs),
+            "place_first": self.place_first,
+        }
+
+
 # ---------------------------------------------------------------- 角色池
-def generate_pool(rng: random.Random) -> list[Character]:
+def _roster_for(mode: modes.ModeConfig) -> list[Character]:
+    return [c for c in roster() if c.id not in mode.excluded_characters]
+
+
+def _make_cards(characters: list[Character], mode: modes.ModeConfig, rng: random.Random) -> list[PoolCard]:
+    """把抽到的角色变成卡牌：标准模式沿用角色自带标签，混沌模式随机分配标签。"""
+
+    if not mode.random_tags:
+        return [
+            PoolCard(character=c, tags=(c.tag,) if c.tag != NONE_TAG else ())
+            for c in characters
+        ]
+    cards = [PoolCard(character=c, tags=()) for c in characters]
+    _assign_chaos_tags(cards, mode, rng)
+    return cards
+
+
+def _assign_chaos_tags(cards: list[PoolCard], mode: modes.ModeConfig, rng: random.Random) -> None:
+    """混沌模式的标签分配：每人 tags_per_player 个标签，单角色最多 2 个，且不能互斥。
+
+    分配时优先给"手上标签最少"的角色，让标签尽量分散而不是堆在同一个人身上
+    （旧项目文档里的示例就是 4 个角色各 1 个标签）。
+    """
+
+    available = [tag for tag in taglib.TAGS if tag != NONE_TAG and tag not in mode.excluded_tags]
+    working: dict[int, list[str]] = {card.character.id: [] for card in cards}
+
+    for _ in range(mode.tags_per_player):
+        options: list[tuple[PoolCard, str]] = []
+        for card in cards:
+            current = working[card.character.id]
+            if len(current) >= mode.max_tags_per_character:
+                continue
+            for tag in available:
+                if tag in current:
+                    continue
+                if any(modes.tags_conflict(tag, existing) for existing in current):
+                    continue
+                options.append((card, tag))
+        if not options:
+            break
+        fewest = min(len(working[card.character.id]) for card, _ in options)
+        options = [option for option in options if len(working[option[0].character.id]) == fewest]
+        card, tag = rng.choice(options)
+        working[card.character.id].append(tag)
+
+    for index, card in enumerate(cards):
+        cards[index] = PoolCard(character=card.character, tags=tuple(working[card.character.id]))
+
+
+def generate_pool(rng: random.Random, mode: modes.ModeConfig | None = None) -> list[PoolCard]:
     """为一名玩家抽取本局角色池（从当前启用的角色中随机 6 名，不重复）。"""
 
-    return rng.sample(list(roster()), C.POOL_SIZE)
+    mode = mode or modes.get_mode(None)
+    characters = rng.sample(_roster_for(mode), mode.pool_size)
+    return _make_cards(characters, mode, rng)
 
 
-def generate_pools(rng: random.Random) -> tuple[list[Character], list[Character]]:
+def generate_pools(
+    rng: random.Random, mode: modes.ModeConfig | None = None
+) -> tuple[list[PoolCard], list[PoolCard]]:
     """本局双方的 6 张角色池。
 
     抽取机制：
@@ -61,8 +195,9 @@ def generate_pools(rng: random.Random) -> tuple[list[Character], list[Character]
     导致它的实际出场率远低于其他角色。
     """
 
-    pool_size = C.POOL_SIZE
-    drawn = rng.sample(list(roster()), pool_size * 2)
+    mode = mode or modes.get_mode(None)
+    pool_size = mode.pool_size
+    drawn = rng.sample(_roster_for(mode), pool_size * 2)
 
     best: tuple[int, list[Character], list[Character]] | None = None
     fallback: tuple[int, list[Character], list[Character]] | None = None
@@ -74,7 +209,7 @@ def generate_pools(rng: random.Random) -> tuple[list[Character], list[Character]
         gap = _pool_gap_score(first, second)
         if fallback is None or gap < fallback[0]:
             fallback = (gap, first, second)
-        if not (_pool_has_build_space(first) and _pool_has_build_space(second)):
+        if not mode.random_tags and not (_pool_has_build_space(first) and _pool_has_build_space(second)):
             continue
         if best is None or gap < best[0]:
             best = (gap, first, second)
@@ -84,12 +219,17 @@ def generate_pools(rng: random.Random) -> tuple[list[Character], list[Character]
 
     chosen = best or fallback
     if chosen is None:  # pragma: no cover - 卡池小于 2*POOL_SIZE 时才会发生
-        return _sorted_pool(drawn[:pool_size]), _sorted_pool(drawn[pool_size:])
-    _gap, first, second = chosen
-    return _sorted_pool(first), _sorted_pool(second)
+        first_chars, second_chars = drawn[:pool_size], drawn[pool_size:]
+    else:
+        _gap, first_chars, second_chars = chosen
+    first_chars, second_chars = _sorted_chars(first_chars), _sorted_chars(second_chars)
+    return (
+        _make_cards(first_chars, mode, rng),
+        _make_cards(second_chars, mode, rng),
+    )
 
 
-def _sorted_pool(pool: list[Character]) -> list[Character]:
+def _sorted_chars(pool: list[Character]) -> list[Character]:
     """按编号排序，让前端卡片顺序稳定、方便对照。"""
 
     return sorted(pool, key=lambda character: character.id)
@@ -142,36 +282,25 @@ def _pools_are_fair(first: list[Character], second: list[Character]) -> bool:
     )
 
 
-def pool_payload(pool: list[Character]) -> list[dict]:
+def pool_payload(pool: list[PoolCard]) -> list[dict]:
     """角色池的对外结构，前端据此渲染卡牌。"""
 
-    return [
-        {
-            "id": c.id,
-            "name": c.name,
-            "role": c.role,
-            "atk": c.atk,
-            "hp": c.hp,
-            "initiative": c.initiative,
-            "tag": c.tag,
-            "tag_name": taglib.get_spec(c.tag).name,
-            "tag_summary": taglib.get_spec(c.tag).summary,
-            "domain": c.domain,
-            "lore": c.lore,
-            "place_first": taglib.get_spec(c.tag).place_first,
-        }
-        for c in pool
-    ]
+    return [card.to_dict() for card in pool]
 
 
 # ---------------------------------------------------------------- 方案校验
-def validate_plan(pool: list[Character], plan: Plan) -> None:
+def validate_plan(pool: list[PoolCard], plan: Plan, mode: modes.ModeConfig | None = None) -> None:
     """校验一份出战方案，不合法时抛出 RuleError（消息可直接展示给玩家）。"""
 
+    mode = mode or modes.get_mode(None)
     pool_ids = {c.id for c in pool}
+    by_id = {card.id: card for card in pool}
 
-    if len(plan.selection) != C.TEAM_SIZE:
-        raise RuleError(f"需要选择 {C.TEAM_SIZE} 名角色出战，当前选择了 {len(plan.selection)} 名", "selection")
+    if len(plan.selection) != mode.team_size:
+        raise RuleError(
+            f"需要选择 {mode.team_size} 名角色出战，当前选择了 {len(plan.selection)} 名",
+            "selection",
+        )
 
     if len(set(plan.selection)) != len(plan.selection):
         raise RuleError("同一名角色不能重复上场", "selection")
@@ -181,28 +310,27 @@ def validate_plan(pool: list[Character], plan: Plan) -> None:
             raise RuleError("选择的角色不在本局角色池中", "selection")
 
     for slot, char_id in enumerate(plan.selection):
-        character = get_character(char_id)
-        spec = taglib.get_spec(character.tag)
-        if spec.place_first and slot != 0:
-            raise RuleError(f"{character.name} 只能放在第一个出击位", "selection")
+        card = by_id[char_id]
+        if card.place_first and slot != 0:
+            raise RuleError(f"{card.name} 只能放在第一个出击位", "selection")
 
-    if len(plan.bonuses) != C.BONUS_PER_ROUND:
+    if len(plan.bonuses) != mode.bonus_per_round:
         raise RuleError(
-            f"需要分配 {C.BONUS_PER_ROUND} 次增益，当前分配了 {len(plan.bonuses)} 次",
+            f"需要分配 {mode.bonus_per_round} 次增益，当前分配了 {len(plan.bonuses)} 次",
             "bonuses",
         )
 
     per_slot: Counter[int] = Counter()
     for bonus in plan.bonuses:
-        if bonus.slot < 1 or bonus.slot > C.TEAM_SIZE:
+        if bonus.slot < 1 or bonus.slot > mode.team_size:
             raise RuleError("增益只能分配给已出战的出击位", "bonuses")
         if bonus.kind not in (BONUS_ATK, BONUS_HP):
             raise RuleError("增益类型只能是攻击 +2 或生命 +4", "bonuses")
         per_slot[bonus.slot] += 1
     for slot, count in per_slot.items():
-        if count > C.MAX_BONUS_PER_FIGHTER:
+        if count > mode.max_bonus_per_fighter:
             raise RuleError(
-                f"每个出击位最多获得 {C.MAX_BONUS_PER_FIGHTER} 次增益，第 {slot} 位当前有 {count} 次",
+                f"每个出击位最多获得 {mode.max_bonus_per_fighter} 次增益，第 {slot} 位当前有 {count} 次",
                 "bonuses",
             )
 
@@ -215,9 +343,10 @@ def validate_plan(pool: list[Character], plan: Plan) -> None:
 
 
 # ---------------------------------------------------------------- 阵容构建
-def build_team(pool: list[Character], plan: Plan, team: int) -> list[Fighter]:
+def build_team(pool: list[PoolCard], plan: Plan, team: int, mode: modes.ModeConfig | None = None) -> list[Fighter]:
     """把角色池 + 方案变成战场上的战士列表（顺序即出击顺序）。"""
 
+    by_id = {card.id: card for card in pool}
     fighters: list[Fighter] = []
     bonus_atk: Counter[int] = Counter()
     bonus_hp: Counter[int] = Counter()
@@ -228,11 +357,12 @@ def build_team(pool: list[Character], plan: Plan, team: int) -> list[Fighter]:
             bonus_hp[bonus.slot] += C.BONUS_HP
 
     for index, char_id in enumerate(plan.selection):
-        character = get_character(char_id)
+        card = by_id[char_id]
+        character = card.character
         slot = index + 1
         atk = character.atk + bonus_atk.get(slot, 0)
         max_hp = character.hp + bonus_hp.get(slot, 0)
-        tags = [character.tag] if character.tag != NONE_TAG else []
+        tags = [tag for tag in card.tags if tag != NONE_TAG]
         fighters.append(
             Fighter(
                 uid=f"{'AB'[team]}{slot}-{character.id}",
@@ -257,24 +387,26 @@ def build_team(pool: list[Character], plan: Plan, team: int) -> list[Fighter]:
     return fighters
 
 
-def random_plan(pool: list[Character], rng: random.Random) -> Plan:
+def random_plan(pool: list[PoolCard], rng: random.Random, mode: modes.ModeConfig | None = None) -> Plan:
     """随机生成一份合法方案，用于准备超时自动提交与平衡性对拍。"""
 
-    first_slot_chars = [c for c in pool if taglib.get_spec(c.tag).place_first]
-    others = [c for c in pool if c not in first_slot_chars]
+    mode = mode or modes.get_mode(None)
+    first_slot_chars = [card for card in pool if card.place_first]
+    others = [card for card in pool if not card.place_first]
+    team_size = mode.team_size
 
-    selection: list[int] = []
     if first_slot_chars and rng.random() < 0.5:
-        selection.append(rng.choice(first_slot_chars).id)
-        selection.extend(c.id for c in rng.sample(others, C.TEAM_SIZE - 1))
+        selection = [rng.choice(first_slot_chars).id]
+        selection.extend(card.id for card in rng.sample(others, team_size - 1))
     else:
-        selection.extend(c.id for c in rng.sample(pool, C.TEAM_SIZE))
-        selection.sort(key=lambda cid: (not taglib.get_spec(get_character(cid).tag).place_first,))
+        picked = rng.sample(pool, team_size)
+        picked.sort(key=lambda card: (not card.place_first, card.id))
+        selection = [card.id for card in picked]
 
     bonuses: list[Bonus] = []
-    slots = [slot for slot in range(1, C.TEAM_SIZE + 1) for _ in range(C.MAX_BONUS_PER_FIGHTER)]
+    slots = [slot for slot in range(1, team_size + 1) for _ in range(mode.max_bonus_per_fighter)]
     rng.shuffle(slots)
-    for slot in slots[: C.BONUS_PER_ROUND]:
+    for slot in slots[: mode.bonus_per_round]:
         bonuses.append(Bonus(slot=slot, kind=rng.choice([BONUS_ATK, BONUS_HP])))
 
     strategy = Strategy(kind=rng.choice([STRATEGY_LOWEST_HP, STRATEGY_HIGHEST_ATK]))

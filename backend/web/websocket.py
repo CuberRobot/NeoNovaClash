@@ -8,6 +8,7 @@ import time
 from fastapi import WebSocket, WebSocketDisconnect
 
 from .. import protocol
+from ..core import modes
 from ..core.room import RoomError
 from ..core.rules import RuleError
 from .hub import GameHub, Session
@@ -94,7 +95,7 @@ async def _create_room(websocket: WebSocket, hub: GameHub, session: Session, mes
     if session.in_room:
         await hub.leave(session, reason="重新创建房间")
     try:
-        room = hub.create_room()
+        room = hub.create_room(modes.get_mode(message.mode))
         player, outgoings = room.join(message.name)
         hub.bind(room.code, player.seat, websocket)
         session.room_code, session.seat, session.name = room.code, player.seat, player.name
@@ -122,19 +123,24 @@ async def _join_random(websocket: WebSocket, hub: GameHub, session: Session, mes
 
     if session.in_room:
         await hub.leave(session, reason="重新匹配")
-    opponent = hub.take_opponent()
+    try:
+        mode = modes.get_mode(message.mode)
+    except modes.ModeError as exc:
+        await websocket.send_json(protocol.error(str(exc), fatal=True))
+        return
+    opponent = hub.take_opponent(mode.key)
     if opponent is None:
         try:
-            size = hub.enqueue(session, message.name, websocket)
+            size = hub.enqueue(session, message.name, websocket, mode.key)
         except RoomError as exc:
             await websocket.send_json(protocol.error(str(exc), fatal=True))
             return
         session.name = message.name
-        await websocket.send_json(protocol.matchmaking_waiting(queue_size=size))
+        await websocket.send_json(protocol.matchmaking_waiting(queue_size=size, mode=mode.key))
         return
 
     try:
-        room = hub.create_room()
+        room = hub.create_room(mode)
         player_a, outgoings_a = room.join(opponent.name)
         player_b, outgoings_b = room.join(message.name)
     except RoomError as exc:

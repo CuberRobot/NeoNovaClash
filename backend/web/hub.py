@@ -17,6 +17,7 @@ from fastapi import WebSocket
 
 from ..config import Settings
 from ..core import constants as C
+from ..core import modes
 from ..core.room import Outgoing, Phase, Room, RoomError
 
 logger = logging.getLogger("neonovaclash.hub")
@@ -57,6 +58,7 @@ class QueuedPlayer:
     name: str
     since: float
     websocket: WebSocket
+    mode_key: str = modes.DEFAULT_MODE_KEY
 
 
 class GameHub:
@@ -70,7 +72,7 @@ class GameHub:
         self._rng = random.Random()
 
     # ------------------------------------------------------------ 房间生命周期
-    def create_room(self) -> Room:
+    def create_room(self, mode: modes.ModeConfig | str = modes.DEFAULT_MODE_KEY) -> Room:
         if len(self.rooms) >= self.settings.max_rooms:
             raise RoomError("服务器房间已满，请稍后再试")
         code = self._new_code()
@@ -78,6 +80,7 @@ class GameHub:
             code,
             prepare_timeout=self.settings.prepare_timeout,
             reconnect_grace=self.settings.reconnect_grace,
+            mode=mode,
         )
         self.rooms[code] = room
         self.connections[code] = {}
@@ -163,16 +166,29 @@ class GameHub:
         await self.dispatch(room, outgoings)
 
     # ------------------------------------------------------------ 随机匹配
-    def enqueue(self, session: Session, name: str, websocket: WebSocket) -> int:
-        """把玩家放进匹配队列，返回当前排队人数（含自己）。"""
+    def enqueue(
+        self,
+        session: Session,
+        name: str,
+        websocket: WebSocket,
+        mode_key: str = modes.DEFAULT_MODE_KEY,
+    ) -> int:
+        """把玩家放进匹配队列，返回该模式下排队人数（含自己）。"""
 
         self.dequeue(session)
-        if len(self.queue) >= C.MATCHMAKING_QUEUE_LIMIT:
+        same_mode = [item for item in self.queue if item.mode_key == mode_key]
+        if len(same_mode) >= C.MATCHMAKING_QUEUE_LIMIT:
             raise RoomError("匹配队列已满，请稍后再试")
         self.queue.append(
-            QueuedPlayer(session=session, name=name, since=time.monotonic(), websocket=websocket)
+            QueuedPlayer(
+                session=session,
+                name=name,
+                since=time.monotonic(),
+                websocket=websocket,
+                mode_key=mode_key,
+            )
         )
-        return len(self.queue)
+        return len(same_mode) + 1
 
     def dequeue(self, session: Session) -> bool:
         before = len(self.queue)
@@ -182,11 +198,14 @@ class GameHub:
     def queue_size(self) -> int:
         return len(self.queue)
 
-    def take_opponent(self) -> QueuedPlayer | None:
-        """取出队首仍在等待的玩家（用于与新来的玩家配对）。"""
+    def take_opponent(self, mode_key: str = modes.DEFAULT_MODE_KEY) -> QueuedPlayer | None:
+        """取出仍在等待、且模式相同的玩家（不同模式之间不会互相匹配）。"""
 
         while self.queue:
-            queued = self.queue.pop(0)
+            index = next((i for i, item in enumerate(self.queue) if item.mode_key == mode_key), None)
+            if index is None:
+                return None
+            queued = self.queue.pop(index)
             if queued.session.in_room:
                 continue
             return queued

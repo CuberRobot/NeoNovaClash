@@ -14,6 +14,7 @@
   const HISTORY_LIMIT = 5;
   const RECONNECT_LIMIT = 5;
   const SESSION_KEY = "nc_session";
+  const MODE_KEY = "nc_mode";
 
   const state = {
     ws: null,
@@ -52,6 +53,9 @@
     previousScreen: "screen-lobby",
     overlayActive: false,
     opponentDisconnected: false,
+    modeKey: "standard",
+    modes: [],
+    randomTags: false,
   };
 
   const el = (id) => document.getElementById(id);
@@ -160,6 +164,43 @@
 
   function hideMatching() {
     el("matching").classList.add("hidden");
+  }
+
+  /* ------------------------------------------------------------ 游戏模式 */
+  function renderModes() {
+    const box = el("mode-options");
+    if (!state.modes.length) return;
+    box.innerHTML = "";
+    state.modes.forEach((mode) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "mode-option" + (mode.key === state.modeKey ? " is-active" : "");
+      const title = document.createElement("strong");
+      title.textContent = mode.name;
+      const summary = document.createElement("span");
+      summary.textContent = mode.summary;
+      button.append(title, summary);
+      button.addEventListener("click", () => {
+        state.modeKey = mode.key;
+        state.randomTags = Boolean(mode.random_tags);
+        try {
+          localStorage.setItem(MODE_KEY, mode.key);
+        } catch (err) {
+          /* 忽略 */
+        }
+        renderModes();
+      });
+      box.appendChild(button);
+    });
+  }
+
+  function restoreMode() {
+    try {
+      const saved = localStorage.getItem(MODE_KEY);
+      if (saved) state.modeKey = saved;
+    } catch (err) {
+      /* 忽略 */
+    }
   }
 
   function restoreInputs() {
@@ -349,6 +390,7 @@
     hideMatching();
     hideOpponentBanner();
     if (message.token) saveSession(message.room_code, message.token);
+    if (message.mode) applyModeFromMessage(message);
     el("room-code").textContent = message.room_code;
     renderWaitingPlayers(message.players || []);
     show("screen-waiting");
@@ -379,6 +421,7 @@
     state.nextRoundDeadline = 0;
     state.opponentReady = Boolean(message.opponent_ready);
     state.submitted = Boolean(message.submitted);
+    applyModeFromMessage(message);
 
     if (message.phase === "preparing" && message.pool) {
       hideOverlay();
@@ -568,6 +611,7 @@
     state.resultTimer = null;
     hideOverlay();
 
+    applyModeFromMessage(message);
     state.roundIndex = message.round_index;
     state.score = message.score || [0, 0];
     state.pool = message.pool || [];
@@ -590,10 +634,26 @@
     startTimer(message.deadline_seconds || 60);
   }
 
+  function applyModeFromMessage(message) {
+    if (!message.mode) return;
+    state.modeKey = message.mode;
+    state.randomTags = Boolean(message.random_tags);
+    const badge = el("mode-badge");
+    badge.textContent = message.mode_name || message.mode;
+    badge.classList.remove("hidden");
+    document.body.dataset.mode = message.mode;
+  }
+
   function renderPrepare() {
     el("round-index").textContent = String(state.roundIndex);
     el("score-display").textContent = state.score.join(" : ");
     el("btn-review").classList.toggle("hidden", !state.lastBattle);
+    const badge = el("mode-badge");
+    if (state.modeKey) {
+      const mode = state.modes.find((item) => item.key === state.modeKey);
+      badge.textContent = mode ? mode.name : state.modeKey;
+      badge.classList.remove("hidden");
+    }
     renderPool();
     renderSlots();
     renderStrategy();
@@ -663,7 +723,16 @@
         card.appendChild(notice);
       }
 
-      if (character.tag !== "none") {
+      const tags = (character.tags || []).filter((tag) => tag && tag !== "none");
+      if (tags.length) {
+        const chipRow = document.createElement("div");
+        chipRow.className = "tag-row";
+        tags.forEach((tag, index) => {
+          const chip = document.createElement("span");
+          chip.className = "tag-badge";
+          chip.textContent = (character.tag_names || [])[index] || tag;
+          chipRow.appendChild(chip);
+        });
         const tagButton = document.createElement("button");
         tagButton.type = "button";
         tagButton.className = "tag-badge";
@@ -672,7 +741,8 @@
           event.stopPropagation();
           showTagNote(character);
         });
-        card.appendChild(tagButton);
+        chipRow.appendChild(tagButton);
+        card.appendChild(chipRow);
       }
 
       container.appendChild(card);
@@ -682,7 +752,10 @@
   function showTagNote(character) {
     const note = el("tag-note");
     note.classList.remove("hidden");
-    note.textContent = `${character.name} · ${character.tag_name}：${character.tag_summary || ""}`;
+    const parts = (character.tags || []).map(
+      (tag, index) => `${(character.tag_names || [])[index] || tag}：${(character.tag_summaries || [])[index] || ""}`
+    );
+    note.textContent = `${character.name} · ${character.tag_name}｜${parts.join("　")}`;
   }
 
   function toggleCharacter(charId) {
@@ -1356,6 +1429,11 @@
     try {
       const response = await fetch("/api/rules");
       state.rules = await response.json();
+      state.modes = state.rules.modes || [];
+      if (state.modes.length && !state.modes.some((mode) => mode.key === state.modeKey)) {
+        state.modeKey = state.modes[0].key;
+      }
+      renderModes();
       renderRules();
     } catch (err) {
       el("rules-content").innerHTML = "<p class='hint'>规则加载失败，请刷新页面重试。</p>";
@@ -1379,8 +1457,17 @@
       .map((tag) => `<tr><td><strong>${tag.name}</strong></td><td>${tag.detail}</td></tr>`)
       .join("");
     const strategies = rules.strategies.map((item) => `<li>${item.label}</li>`).join("");
+    const modeRows = (rules.modes || [])
+      .map(
+        (mode) =>
+          `<tr><td><strong>${mode.name}</strong></td><td>${mode.summary}</td><td>${mode.detail}</td></tr>`
+      )
+      .join("");
 
     el("rules-content").innerHTML = `
+      <h3>游戏模式</h3>
+      <table><thead><tr><th>模式</th><th>一句话</th><th>说明</th></tr></thead><tbody>${modeRows}</tbody></table>
+
       <h3>一局怎么打</h3>
       <ul>
         <li>每局双方各自获得 ${c.pool_size} 名随机角色构成的角色池，从中选出 ${c.team_size} 名出战。</li>
@@ -1434,7 +1521,7 @@
       }
       el("lobby-hint").textContent = "";
       rememberInputs();
-      send({ type: "create_room", name: name });
+      send({ type: "create_room", name: name, mode: state.modeKey });
     });
 
     el("btn-random").addEventListener("click", () => {
@@ -1446,7 +1533,7 @@
       }
       el("lobby-hint").textContent = "";
       rememberInputs();
-      send({ type: "join_random", name: name });
+      send({ type: "join_random", name: name, mode: state.modeKey });
     });
 
     el("btn-cancel-match").addEventListener("click", () => send({ type: "cancel_matchmaking" }));
@@ -1525,6 +1612,7 @@
       /* 忽略 */
     }
     restoreInputs();
+    restoreMode();
     bindEvents();
     connect();
     loadRules();

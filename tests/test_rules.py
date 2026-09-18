@@ -55,7 +55,7 @@ def test_plan_rejects_duplicate_characters():
 def test_explosive_must_be_placed_first():
     explosive = next(c for c in rules.roster() if c.tag == "explosive")
     others = [c for c in rules.roster() if c.tag != "explosive"][:2]
-    pool = [explosive, *others]
+    pool = [rules.PoolCard(character=c, tags=(c.tag,) if c.tag != "none" else ()) for c in (explosive, *others)]
     plan = Plan(
         selection=(others[0].id, explosive.id, others[1].id),
         bonuses=(),

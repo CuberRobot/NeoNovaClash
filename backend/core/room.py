@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from . import constants as C
-from . import rules
+from . import modes, rules
 from .characters import Character
 from .models import Plan
 
@@ -87,10 +87,10 @@ class Room:
         seed: int | None = None,
         prepare_timeout: int = C.PREPARE_TIMEOUT_SECONDS,
         reconnect_grace: int = C.RECONNECT_GRACE_SECONDS,
-        mode: str = "standard",
+        mode: modes.ModeConfig | str = modes.DEFAULT_MODE_KEY,
     ) -> None:
         self.code = code
-        self.mode = mode
+        self.mode: modes.ModeConfig = mode if isinstance(mode, modes.ModeConfig) else modes.get_mode(mode)
         self.seed = seed if seed is not None else secrets.randbelow(2**31 - 1)
         self.rng = random.Random(self.seed)
         self.prepare_timeout = prepare_timeout
@@ -240,11 +240,14 @@ class Room:
         )
         if player.pool:
             payload["pool"] = rules.pool_payload(player.pool)
-            payload["mode"] = self.mode
-            payload["team_size"] = C.TEAM_SIZE
-            payload["pool_size"] = C.POOL_SIZE
-            payload["bonus_per_round"] = C.BONUS_PER_ROUND
-            payload["max_bonus_per_fighter"] = C.MAX_BONUS_PER_FIGHTER
+            payload["mode"] = self.mode.key
+            payload["mode_name"] = self.mode.name
+            payload["mode_summary"] = self.mode.summary
+            payload["random_tags"] = self.mode.random_tags
+            payload["team_size"] = self.mode.team_size
+            payload["pool_size"] = self.mode.pool_size
+            payload["bonus_per_round"] = self.mode.bonus_per_round
+            payload["max_bonus_per_fighter"] = self.mode.max_bonus_per_fighter
             payload["rounds_to_win"] = C.ROUNDS_TO_WIN
             payload["bonus_options"] = [
                 {"kind": "atk", "label": f"攻击 +{C.BONUS_ATK}"},
@@ -270,7 +273,7 @@ class Room:
         self.round_index += 1
         self.deadline = time.monotonic() + self.prepare_timeout
         self.phase = Phase.PREPARING
-        pools = rules.generate_pools(self.rng)
+        pools = rules.generate_pools(self.rng, self.mode)
         for player, pool in zip(self.players, pools, strict=True):
             player.reset_for_round()
             player.pool = pool
@@ -287,16 +290,19 @@ class Room:
                         score=self.scores(),
                         deadline_seconds=self.prepare_timeout,
                         pool=rules.pool_payload(player.pool),
-                        mode=self.mode,
+                        mode=self.mode.key,
+                        mode_name=self.mode.name,
+                        mode_summary=self.mode.summary,
+                        random_tags=self.mode.random_tags,
                         rounds_to_win=C.ROUNDS_TO_WIN,
-                        team_size=C.TEAM_SIZE,
-                        pool_size=C.POOL_SIZE,
-                        bonus_per_round=C.BONUS_PER_ROUND,
+                        team_size=self.mode.team_size,
+                        pool_size=self.mode.pool_size,
+                        bonus_per_round=self.mode.bonus_per_round,
                         bonus_options=[
                             {"kind": "atk", "label": f"攻击 +{C.BONUS_ATK}"},
                             {"kind": "hp", "label": f"生命 +{C.BONUS_HP}"},
                         ],
-                        max_bonus_per_fighter=C.MAX_BONUS_PER_FIGHTER,
+                        max_bonus_per_fighter=self.mode.max_bonus_per_fighter,
                         strategies=rules.available_strategies(),
                     ),
                 )
@@ -311,7 +317,7 @@ class Room:
         if self.phase is not Phase.PREPARING:
             raise RoomError("当前不是待提交阶段")
         player = self.player_of(seat)
-        rules.validate_plan(player.pool, plan)
+        rules.validate_plan(player.pool, plan, self.mode)
 
         player.plan = plan
         player.submitted = True
@@ -342,7 +348,7 @@ class Room:
         for player in self.players:
             if player.submitted:
                 continue
-            player.plan = rules.random_plan(player.pool, self.rng)
+            player.plan = rules.random_plan(player.pool, self.rng, self.mode)
             player.submitted = True
             player.auto_submitted = True
             outgoings.append(
@@ -368,7 +374,7 @@ class Room:
         self.touch()
 
         teams = [
-            rules.build_team(player.pool, player.plan, player.seat) for player in self.players
+            rules.build_team(player.pool, player.plan, player.seat, self.mode) for player in self.players
         ]
         # 开战前的阵容快照：前端用它绘制血条动画，战斗过程会修改 Fighter 对象
         lineups = [[f.snapshot() for f in team] for team in teams]

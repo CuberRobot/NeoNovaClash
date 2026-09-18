@@ -50,6 +50,10 @@
         </div>
 
         <div class="panel lobby-panel">
+          <p class="eyebrow">游戏模式</p>
+          <div id="mode-options" class="mode-options">
+            <span class="hint">正在加载模式…</span>
+          </div>
           <label class="field">
             <span>你的昵称</span>
             <input id="input-name" maxlength="12" placeholder="1-12 个字符" autocomplete="nickname" />
@@ -106,6 +110,7 @@
             <span>比分 <b id="score-display">0 : 0</b></span>
             <span class="divider">·</span>
             <span id="prepare-status" class="muted">准备中</span>
+            <span id="mode-badge" class="pill hidden">标准模式</span>
           </div>
           <div class="timer" id="timer">
             <span id="timer-text">60s</span>

@@ -251,6 +251,63 @@ def test_matchmaking_can_be_cancelled(client: TestClient):
         assert collect(ws, {"matchmaking_cancelled"})[-1]["type"] == "matchmaking_cancelled"
 
 
+def test_room_carries_mode_parameters(client: TestClient):
+    """大战场模式的房间要下发 9 选 5、6 次增益，并且拒绝 3 人方案。"""
+
+    with two_players(client) as (ws_a, ws_b):
+        assert ws_a.receive_json()["type"] == "hello"
+        assert ws_b.receive_json()["type"] == "hello"
+
+        ws_a.send_json({"type": "create_room", "name": "调停者A", "mode": "big_battlefield"})
+        created = collect(ws_a, {"room_joined"})[-1]
+        ws_b.send_json({"type": "join_room", "name": "调停者B", "room_code": created["room_code"]})
+        round_a = collect(ws_a, {"round_start"})[-1]
+
+        assert round_a["mode"] == "big_battlefield"
+        assert round_a["team_size"] == 5
+        assert round_a["pool_size"] == 9
+        assert round_a["bonus_per_round"] == 6
+        assert len(round_a["pool"]) == 9
+
+        # 只选 3 人会被模式规则挡住
+        ws_a.send_json(
+            {
+                "type": "submit_plan",
+                "selection": [card["id"] for card in round_a["pool"][:3]],
+                "bonuses": [{"slot": 1, "kind": "atk"}] * 6,
+                "strategy": {"kind": "lowest_hp"},
+            }
+        )
+        error = collect(ws_a, {"error"})[-1]
+        assert "5 名角色" in error["message"]
+
+
+def test_matchmaking_is_isolated_by_mode(client: TestClient):
+    """不同模式的玩家不会被匹配到一起。"""
+
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        with client.websocket_connect("/ws") as ws_c:
+            assert ws_a.receive_json()["type"] == "hello"
+            assert ws_b.receive_json()["type"] == "hello"
+            assert ws_c.receive_json()["type"] == "hello"
+
+            ws_a.send_json({"type": "join_random", "name": "混沌A", "mode": "chaos"})
+            assert collect(ws_a, {"matchmaking_waiting"})[-1]["queue_size"] == 1
+
+            # 标准模式玩家进队列：不应该和混沌模式的 A 配对
+            ws_b.send_json({"type": "join_random", "name": "标准B", "mode": "standard"})
+            waiting = collect(ws_b, {"matchmaking_waiting"})[-1]
+            assert waiting["mode"] == "standard"
+
+            # 混沌模式玩家进队列：应该立刻和 A 配成一对
+            ws_c.send_json({"type": "join_random", "name": "混沌C", "mode": "chaos"})
+            round_a = collect(ws_a, {"round_start"})[-1]
+            round_c = collect(ws_c, {"round_start"})[-1]
+
+            assert round_a["mode"] == "chaos"
+            assert round_a["room_code"] == round_c["room_code"]
+
+
 def test_prepare_timeout_auto_submits():
     app = create_app(Settings(prepare_timeout=1))
     with TestClient(app) as client:
