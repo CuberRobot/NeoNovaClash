@@ -60,6 +60,7 @@ class Player:
     auto_submitted: bool = False
     rematch: bool = False
     connected: bool = True
+    reconnect_deadline: float | None = None   # 掉线后允许重连的截止时间（monotonic）
 
     def reset_for_round(self) -> None:
         self.submitted = False
@@ -67,7 +68,13 @@ class Player:
         self.plan = None
 
     def to_dict(self) -> dict:
-        return {"seat": self.seat, "name": self.name, "score": self.score, "submitted": self.submitted}
+        return {
+            "seat": self.seat,
+            "name": self.name,
+            "score": self.score,
+            "submitted": self.submitted,
+            "connected": self.connected,
+        }
 
 
 class Room:
@@ -79,6 +86,7 @@ class Room:
         *,
         seed: int | None = None,
         prepare_timeout: int = C.PREPARE_TIMEOUT_SECONDS,
+        reconnect_grace: int = C.RECONNECT_GRACE_SECONDS,
         mode: str = "standard",
     ) -> None:
         self.code = code
@@ -86,6 +94,7 @@ class Room:
         self.seed = seed if seed is not None else secrets.randbelow(2**31 - 1)
         self.rng = random.Random(self.seed)
         self.prepare_timeout = prepare_timeout
+        self.reconnect_grace = reconnect_grace
         self.players: list[Player] = []
         self.phase = Phase.WAITING
         self.round_index = 0                     # 当前局数，从 1 开始显示
@@ -121,6 +130,12 @@ class Room:
     def has_seat(self, seat: int) -> bool:
         return any(player.seat == seat for player in self.players)
 
+    def player_by_token(self, token: str) -> Player | None:
+        for player in self.players:
+            if player.token == token:
+                return player
+        return None
+
     def room_state_payload(self) -> dict:
         return {
             "room_code": self.code,
@@ -146,19 +161,97 @@ class Room:
         self.touch()
 
         outgoings = [
-            Outgoing(player.seat, self._msg("room_joined", **self.room_state_payload(), seat=player.seat)),
+            Outgoing(
+                player.seat,
+                self._msg("room_joined", **self.room_state_payload(), seat=player.seat, token=player.token),
+            ),
         ]
         if self.is_full:
             outgoings.append(Outgoing(0, self._msg("opponent_joined", name=player.name)))
             outgoings.extend(self.start_round())
         return player, outgoings
 
-    def disconnect(self, seat: int) -> list[Outgoing]:
-        """玩家掉线或主动退出：直接关闭房间（当前版本不做重连）。"""
+    def disconnect(self, seat: int, now: float | None = None) -> list[Outgoing]:
+        """玩家掉线：先给一段重连宽限，超时才关闭房间。"""
 
         if self.is_closed:
             return []
-        return self.close(f"{self.player_of(seat).name} 已离开，房间关闭")
+        now = time.monotonic() if now is None else now
+        player = self.player_of(seat)
+        if not player.connected:
+            return []
+        player.connected = False
+        player.reconnect_deadline = now + self.reconnect_grace
+        self.touch()
+
+        outgoings: list[Outgoing] = []
+        if self.is_full:
+            opponent = self.opponent_of(seat)
+            outgoings.append(
+                Outgoing(
+                    opponent.seat,
+                    self._msg(
+                        "opponent_disconnected",
+                        name=player.name,
+                        grace_seconds=self.reconnect_grace,
+                    ),
+                )
+            )
+        return outgoings
+
+    def reconnect(self, token: str, now: float | None = None) -> list[Outgoing]:
+        """用 token 重新坐上原来的座位，并把当前房间状态同步回去。"""
+
+        if self.is_closed:
+            raise RoomError("房间已关闭，无法重连")
+        player = self.player_by_token(token)
+        if player is None:
+            raise RoomError("重连凭据无效，请重新创建或加入房间")
+        if player.connected:
+            # 同一凭据重复连接：把旧连接顶掉，状态照常同步
+            pass
+        player.connected = True
+        player.reconnect_deadline = None
+        if self.deadline is not None:
+            # 备战阶段的剩余时间按"掉线期间照常流逝"计算
+            remaining = max(1, int(self.deadline - time.monotonic()))
+        else:
+            remaining = 0
+        self.touch()
+
+        outgoings = [Outgoing(player.seat, self.state_sync_payload(player, remaining_seconds=remaining))]
+        if self.is_full:
+            opponent = self.opponent_of(player.seat)
+            outgoings.append(Outgoing(opponent.seat, self._msg("opponent_reconnected", name=player.name)))
+        return outgoings
+
+    def state_sync_payload(self, player: Player, remaining_seconds: int = 0) -> dict:
+        """重连后一次性把玩家需要恢复界面的信息发过去。"""
+
+        payload = self._msg(
+            "state_sync",
+            **self.room_state_payload(),
+            seat=player.seat,
+            token=player.token,
+            plan=player.plan.to_dict() if player.plan else None,
+            submitted=player.submitted,
+            opponent_ready=self.is_full and self.opponent_of(player.seat).submitted,
+            remaining_seconds=remaining_seconds,
+        )
+        if player.pool:
+            payload["pool"] = rules.pool_payload(player.pool)
+            payload["mode"] = self.mode
+            payload["team_size"] = C.TEAM_SIZE
+            payload["pool_size"] = C.POOL_SIZE
+            payload["bonus_per_round"] = C.BONUS_PER_ROUND
+            payload["max_bonus_per_fighter"] = C.MAX_BONUS_PER_FIGHTER
+            payload["rounds_to_win"] = C.ROUNDS_TO_WIN
+            payload["bonus_options"] = [
+                {"kind": "atk", "label": f"攻击 +{C.BONUS_ATK}"},
+                {"kind": "hp", "label": f"生命 +{C.BONUS_HP}"},
+            ]
+            payload["strategies"] = rules.available_strategies()
+        return payload
 
     def close(self, reason: str) -> list[Outgoing]:
         if self.is_closed:
@@ -239,6 +332,10 @@ class Room:
         """准备阶段超时：未提交的玩家自动随机提交，然后结算本局。"""
 
         now = time.monotonic() if now is None else now
+        # 掉线超时：等不到人回来就关房
+        for player in self.players:
+            if not player.connected and player.reconnect_deadline is not None and now >= player.reconnect_deadline:
+                return self.close(f"{player.name} 掉线超过 {self.reconnect_grace} 秒未重连，房间已关闭")
         if self.phase is not Phase.PREPARING or self.deadline is None or now < self.deadline:
             return []
         outgoings: list[Outgoing] = []

@@ -27,6 +27,7 @@ class Settings:
     host: str = "0.0.0.0"
     port: int = 8000
     prepare_timeout: int = 60
+    reconnect_grace: int = 90
     room_ttl: int = 1800
     max_rooms: int = 500
     log_level: str = "info"
@@ -38,6 +39,7 @@ class Settings:
             host=os.getenv("NC_HOST", "0.0.0.0"),
             port=_env_int("NC_PORT", 8000),
             prepare_timeout=_env_int("NC_PREPARE_TIMEOUT", 60),
+            reconnect_grace=_env_int("NC_RECONNECT_GRACE", 90),
             room_ttl=_env_int("NC_ROOM_TTL", 1800),
             max_rooms=_env_int("NC_MAX_ROOMS", 500),
             log_level=os.getenv("NC_LOG_LEVEL", "info").lower(),

@@ -13,6 +13,7 @@
   const HISTORY_KEY = "nc_history";
   const HISTORY_LIMIT = 5;
   const RECONNECT_LIMIT = 5;
+  const SESSION_KEY = "nc_session";
 
   const state = {
     ws: null,
@@ -50,6 +51,7 @@
     rulesLoading: false,
     previousScreen: "screen-lobby",
     overlayActive: false,
+    opponentDisconnected: false,
   };
 
   const el = (id) => document.getElementById(id);
@@ -113,6 +115,53 @@
     }
   }
 
+  /* ------------------------------------------------------------ 会话（断线重连用）
+     注意：必须用 sessionStorage —— localStorage 在同源的所有标签页之间共享，
+     同一台电脑开着两个标签页对战时，后加入的标签页会覆盖前一个的 token，
+     刷新后会把自己重连成对手的座位。sessionStorage 是每个标签页独立的。 */
+  function sessionStore() {
+    try {
+      return window.sessionStorage;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function saveSession(roomCode, token) {
+    const store = sessionStore();
+    if (!store) return;
+    try {
+      store.setItem(SESSION_KEY, JSON.stringify({ roomCode: roomCode, token: token }));
+    } catch (err) {
+      /* 隐私模式下忽略 */
+    }
+  }
+
+  function readSession() {
+    const store = sessionStore();
+    if (!store) return null;
+    try {
+      const raw = JSON.parse(store.getItem(SESSION_KEY) || "null");
+      return raw && raw.roomCode && raw.token ? raw : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function clearSession() {
+    const store = sessionStore();
+    try {
+      if (store) store.removeItem(SESSION_KEY);
+    } catch (err) {
+      /* 忽略 */
+    }
+    hideMatching();
+  }
+
+  function hideMatching() {
+    el("matching").classList.add("hidden");
+  }
+
   function restoreInputs() {
     try {
       const name = localStorage.getItem("nc_name");
@@ -127,6 +176,7 @@
   function resetToLobby(message) {
     stopTimer();
     stopPlayback();
+    clearSession();
     state.roomCode = null;
     state.seat = null;
     state.pool = [];
@@ -161,8 +211,14 @@
       state.connected = true;
       state.reconnectAttempts = 0;
       setConn("ok", "已连接");
+      const session = readSession();
+      if (session) {
+        // 带着上次的房间凭据回来：优先恢复原来的对局
+        setConn("warn", "正在恢复对局…");
+        send({ type: "reconnect", room_code: session.roomCode, token: session.token });
+        return;
+      }
       if (state.roomCode) {
-        // 断线期间服务器已经关闭了房间，重连后回到大厅重新开始
         resetToLobby("已重新连接；由于断线，上一局已经结束，请重新创建或加入房间");
       }
     };
@@ -207,6 +263,29 @@
         break;
       case "room_joined":
         onRoomJoined(message);
+        break;
+      case "state_sync":
+        onStateSync(message);
+        break;
+      case "matchmaking_waiting":
+        el("matching").classList.remove("hidden");
+        el("lobby-hint").textContent = "";
+        break;
+      case "matchmaking_cancelled":
+        hideMatching();
+        toast("已取消匹配");
+        break;
+      case "opponent_disconnected":
+        state.opponentDisconnected = true;
+        showOpponentBanner(
+          `${message.name} 掉线了，正在等待重连（最多 ${message.grace_seconds} 秒）`
+        );
+        toast(`${message.name} 掉线了，对局进度会保留`, true);
+        break;
+      case "opponent_reconnected":
+        state.opponentDisconnected = false;
+        hideOpponentBanner();
+        toast(`${message.name} 已重新连接`);
         break;
       case "opponent_joined":
         toast(message.name + " 加入了房间");
@@ -266,9 +345,80 @@
     state.roomCode = message.room_code;
     state.seat = message.seat;
     state.score = message.score || [0, 0];
+    state.opponentDisconnected = false;
+    hideMatching();
+    hideOpponentBanner();
+    if (message.token) saveSession(message.room_code, message.token);
     el("room-code").textContent = message.room_code;
     renderWaitingPlayers(message.players || []);
     show("screen-waiting");
+  }
+
+  function showOpponentBanner(text) {
+    const banner = el("opponent-banner");
+    banner.textContent = text;
+    banner.classList.remove("hidden");
+  }
+
+  function hideOpponentBanner() {
+    el("opponent-banner").classList.add("hidden");
+  }
+
+  function onStateSync(message) {
+    state.roomCode = message.room_code;
+    state.seat = message.seat;
+    state.score = message.score || [0, 0];
+    saveSession(message.room_code, message.token);
+    setConn("ok", "已连接");
+    stopTimer();
+    stopPlayback();
+    state.battle = null;
+    state.pendingResult = null;
+    state.pendingGameOver = null;
+    state.nextRound = null;
+    state.nextRoundDeadline = 0;
+    state.opponentReady = Boolean(message.opponent_ready);
+    state.submitted = Boolean(message.submitted);
+
+    if (message.phase === "preparing" && message.pool) {
+      hideOverlay();
+      state.roundIndex = message.round_index;
+      state.pool = message.pool;
+      state.strategies = message.strategies || [];
+      state.bonusOptions = message.bonus_options || [];
+      state.teamSize = message.team_size || 3;
+      state.bonusPerRound = message.bonus_per_round || 4;
+      state.maxBonusPerFighter = message.max_bonus_per_fighter || 2;
+      if (message.plan) {
+        state.selection = message.plan.selection.slice();
+        state.bonuses = message.plan.bonuses.slice();
+        state.strategy = { kind: message.plan.strategy.kind, tag: message.plan.strategy.tag };
+        el("btn-submit").textContent = "更新方案";
+      } else {
+        state.selection = [];
+        state.bonuses = [];
+        state.strategy = { kind: "lowest_hp", tag: null };
+        el("btn-submit").textContent = "提交方案";
+      }
+      renderPrepare();
+      show("screen-prepare");
+      startTimer(message.remaining_seconds || 60);
+      toast("已回到原来的房间，继续你的部署");
+      return;
+    }
+
+    if (message.phase === "waiting") {
+      hideOverlay();
+      el("room-code").textContent = message.room_code;
+      renderWaitingPlayers(message.players || []);
+      show("screen-waiting");
+      toast("已回到原来的房间，等待对手加入");
+      return;
+    }
+
+    // 对局已经结束或已关闭：回大厅重新开始
+    clearSession();
+    resetToLobby("上一场对局已经结束，请重新创建或加入房间");
   }
 
   function renderWaitingPlayers(players) {
@@ -1287,6 +1437,20 @@
       send({ type: "create_room", name: name });
     });
 
+    el("btn-random").addEventListener("click", () => {
+      const name = currentNickname();
+      if (!name) {
+        el("lobby-hint").textContent = "请先填写昵称，对手能看到它。";
+        el("input-name").focus();
+        return;
+      }
+      el("lobby-hint").textContent = "";
+      rememberInputs();
+      send({ type: "join_random", name: name });
+    });
+
+    el("btn-cancel-match").addEventListener("click", () => send({ type: "cancel_matchmaking" }));
+
     el("btn-join").addEventListener("click", () => {
       const name = currentNickname();
       const code = el("input-code").value.trim().toUpperCase();
@@ -1354,6 +1518,12 @@
   }
 
   function main() {
+    // 旧版本把会话写在 localStorage 里（会被同一浏览器的多个标签页互相覆盖），这里清掉
+    try {
+      window.localStorage.removeItem(SESSION_KEY);
+    } catch (err) {
+      /* 忽略 */
+    }
     restoreInputs();
     bindEvents();
     connect();

@@ -374,6 +374,34 @@ select:focus {
   width: 120px;
 }
 
+.matching {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: rgba(103, 232, 249, 0.08);
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(103, 232, 249, 0.35);
+  border-top-color: var(--accent-2);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .howto {
   margin: 16px 0 0;
   padding-left: 20px;
@@ -504,6 +532,12 @@ select:focus {
 .banner.lose {
   border-color: rgba(255, 107, 139, 0.5);
   background: rgba(255, 107, 139, 0.14);
+}
+
+.banner.warn {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.12);
+  color: #ffe6b0;
 }
 
 /* ---------------------------------------------------------------- 备战 */

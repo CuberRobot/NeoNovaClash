@@ -61,7 +61,7 @@ async def handle_connection(websocket: WebSocket, hub: GameHub) -> None:
     except Exception:  # pragma: no cover - 兜底，避免整条连接静默失败
         logger.exception("处理连接时发生异常")
     finally:
-        await hub.leave(session, reason="连接断开")
+        await hub.handle_disconnect(session, websocket)
 
 
 async def _handle_raw_message(websocket: WebSocket, hub: GameHub, session: Session, raw: str) -> None:
@@ -74,6 +74,9 @@ async def _handle_raw_message(websocket: WebSocket, hub: GameHub, session: Sessi
     handler = {
         "create_room": _create_room,
         "join_room": _join_room,
+        "join_random": _join_random,
+        "cancel_matchmaking": _cancel_matchmaking,
+        "reconnect": _reconnect,
         "submit_plan": _submit_plan,
         "rematch": _rematch,
         "leave_room": _leave_room,
@@ -87,6 +90,7 @@ async def _handle_raw_message(websocket: WebSocket, hub: GameHub, session: Sessi
 
 
 async def _create_room(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    hub.dequeue(session)
     if session.in_room:
         await hub.leave(session, reason="重新创建房间")
     try:
@@ -100,6 +104,7 @@ async def _create_room(websocket: WebSocket, hub: GameHub, session: Session, mes
 
 
 async def _join_room(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    hub.dequeue(session)
     if session.in_room:
         await hub.leave(session, reason="加入新房间")
     try:
@@ -110,6 +115,66 @@ async def _join_room(websocket: WebSocket, hub: GameHub, session: Session, messa
         await hub.dispatch(room, outgoings)
     except RoomError as exc:
         await websocket.send_json(protocol.error(str(exc), fatal=True))
+
+
+async def _join_random(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    """随机匹配：队列里有人在等就直接配对，否则自己进队列。"""
+
+    if session.in_room:
+        await hub.leave(session, reason="重新匹配")
+    opponent = hub.take_opponent()
+    if opponent is None:
+        try:
+            size = hub.enqueue(session, message.name, websocket)
+        except RoomError as exc:
+            await websocket.send_json(protocol.error(str(exc), fatal=True))
+            return
+        session.name = message.name
+        await websocket.send_json(protocol.matchmaking_waiting(queue_size=size))
+        return
+
+    try:
+        room = hub.create_room()
+        player_a, outgoings_a = room.join(opponent.name)
+        player_b, outgoings_b = room.join(message.name)
+    except RoomError as exc:
+        await websocket.send_json(protocol.error(str(exc), fatal=True))
+        return
+
+    hub.bind(room.code, player_a.seat, opponent.websocket)
+    hub.bind(room.code, player_b.seat, websocket)
+    opponent.session.room_code, opponent.session.seat, opponent.session.name = (
+        room.code,
+        player_a.seat,
+        opponent.name,
+    )
+    session.room_code, session.seat, session.name = room.code, player_b.seat, player_b.name
+    hub.stats.matched += 1
+    await hub.dispatch(room, outgoings_a + outgoings_b)
+
+
+async def _cancel_matchmaking(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    hub.dequeue(session)
+    await websocket.send_json(protocol.matchmaking_cancelled())
+
+
+async def _reconnect(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    """断线重连：凭房间号 + token 回到原来的座位，并同步当前状态。"""
+
+    if session.in_room:
+        session.leave()
+    try:
+        room = hub.get_room(message.room_code)
+        player = room.player_by_token(message.token)
+        if player is None:
+            raise RoomError("重连凭据无效，请重新创建或加入房间")
+        outgoings = room.reconnect(message.token)
+    except RoomError as exc:
+        await websocket.send_json(protocol.error(str(exc), fatal=True))
+        return
+    hub.bind(room.code, player.seat, websocket)
+    session.room_code, session.seat, session.name = room.code, player.seat, player.name
+    await hub.dispatch(room, outgoings)
 
 
 async def _submit_plan(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
@@ -143,6 +208,7 @@ async def _rematch(websocket: WebSocket, hub: GameHub, session: Session, message
 
 
 async def _leave_room(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    hub.dequeue(session)
     if not session.in_room:
         await websocket.send_json(protocol.error("你当前不在任何房间中"))
         return

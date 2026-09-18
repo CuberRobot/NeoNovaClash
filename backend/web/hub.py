@@ -46,6 +46,17 @@ class RoomStats:
     created: int = 0
     closed: int = 0
     battles: int = 0
+    matched: int = 0
+
+
+@dataclass
+class QueuedPlayer:
+    """在随机匹配队列里等待的玩家。"""
+
+    session: Session
+    name: str
+    since: float
+    websocket: WebSocket
 
 
 class GameHub:
@@ -54,6 +65,7 @@ class GameHub:
         self.rooms: dict[str, Room] = {}
         self.connections: dict[str, dict[int, WebSocket]] = {}
         self.stats = RoomStats()
+        self.queue: list[QueuedPlayer] = []
         self.started_at = time.monotonic()
         self._rng = random.Random()
 
@@ -62,7 +74,11 @@ class GameHub:
         if len(self.rooms) >= self.settings.max_rooms:
             raise RoomError("服务器房间已满，请稍后再试")
         code = self._new_code()
-        room = Room(code, prepare_timeout=self.settings.prepare_timeout)
+        room = Room(
+            code,
+            prepare_timeout=self.settings.prepare_timeout,
+            reconnect_grace=self.settings.reconnect_grace,
+        )
         self.rooms[code] = room
         self.connections[code] = {}
         self.stats.created += 1
@@ -111,7 +127,7 @@ class GameHub:
                     logger.debug("向房间 %s 投递消息失败", room.code, exc_info=True)
 
     async def leave(self, session: Session, reason: str) -> None:
-        """玩家离开（主动退出或掉线）：关闭房间并通知对手。"""
+        """玩家主动退出：立即关闭房间并通知对手。"""
 
         if not session.in_room:
             return
@@ -120,9 +136,61 @@ class GameHub:
         session.leave()
         if room is None or room.is_closed:
             return
-        outgoings = room.disconnect(seat)
+        outgoings = room.close(f"{room.player_of(seat).name} 已离开，房间关闭")
         await self.dispatch(room, outgoings)
         self.drop_room(room)
+
+    async def handle_disconnect(self, session: Session, websocket: WebSocket | None = None) -> None:
+        """连接断开：先给重连宽限，房间保持存活；匹配队列里的玩家直接移除。
+
+        注意 websocket 参数：如果这个座位已经绑定了更新的连接（玩家重连之后旧连接才断开），
+        就不要把这个已经回来的玩家误标成掉线。
+        """
+
+        self.dequeue(session)
+        if not session.in_room:
+            return
+        room = self.rooms.get(session.room_code)
+        seat = session.seat
+        session.leave()
+        if room is None or room.is_closed:
+            return
+        current = self.connections.get(room.code, {}).get(seat)
+        if websocket is not None and current is not None and current is not websocket:
+            return
+        self.unbind(room.code, seat)
+        outgoings = room.disconnect(seat)
+        await self.dispatch(room, outgoings)
+
+    # ------------------------------------------------------------ 随机匹配
+    def enqueue(self, session: Session, name: str, websocket: WebSocket) -> int:
+        """把玩家放进匹配队列，返回当前排队人数（含自己）。"""
+
+        self.dequeue(session)
+        if len(self.queue) >= C.MATCHMAKING_QUEUE_LIMIT:
+            raise RoomError("匹配队列已满，请稍后再试")
+        self.queue.append(
+            QueuedPlayer(session=session, name=name, since=time.monotonic(), websocket=websocket)
+        )
+        return len(self.queue)
+
+    def dequeue(self, session: Session) -> bool:
+        before = len(self.queue)
+        self.queue = [item for item in self.queue if item.session is not session]
+        return len(self.queue) != before
+
+    def queue_size(self) -> int:
+        return len(self.queue)
+
+    def take_opponent(self) -> QueuedPlayer | None:
+        """取出队首仍在等待的玩家（用于与新来的玩家配对）。"""
+
+        while self.queue:
+            queued = self.queue.pop(0)
+            if queued.session.in_room:
+                continue
+            return queued
+        return None
 
     # ------------------------------------------------------------ 后台任务
     async def ticker(self, interval: float = 1.0) -> None:

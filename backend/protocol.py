@@ -81,6 +81,28 @@ class SubmitPlanMessage(BaseModel):
     strategy: StrategyMessage = Field(default_factory=StrategyMessage)
 
 
+class JoinRandomMessage(BaseModel):
+    type: Literal["join_random"]
+    name: str
+
+    _clean = field_validator("name")(_clean_name)
+
+
+class CancelMatchmakingMessage(BaseModel):
+    type: Literal["cancel_matchmaking"]
+
+
+class ReconnectMessage(BaseModel):
+    type: Literal["reconnect"]
+    room_code: str = Field(min_length=1, max_length=8)
+    token: str = Field(min_length=4, max_length=64)
+
+    @field_validator("room_code")
+    @classmethod
+    def clean_code(cls, value: str) -> str:
+        return (value or "").strip().upper()
+
+
 class RematchMessage(BaseModel):
     type: Literal["rematch"]
 
@@ -96,6 +118,9 @@ class PingMessage(BaseModel):
 INBOUND_TYPES = {
     "create_room": CreateRoomMessage,
     "join_room": JoinRoomMessage,
+    "join_random": JoinRandomMessage,
+    "cancel_matchmaking": CancelMatchmakingMessage,
+    "reconnect": ReconnectMessage,
     "submit_plan": SubmitPlanMessage,
     "rematch": RematchMessage,
     "leave_room": LeaveRoomMessage,
@@ -105,6 +130,9 @@ INBOUND_TYPES = {
 InboundMessage = (
     CreateRoomMessage
     | JoinRoomMessage
+    | JoinRandomMessage
+    | CancelMatchmakingMessage
+    | ReconnectMessage
     | SubmitPlanMessage
     | RematchMessage
     | LeaveRoomMessage
@@ -169,6 +197,14 @@ def error(message: str, field: str | None = None, fatal: bool = False) -> dict:
 
 def pong() -> dict:
     return {"type": "pong"}
+
+
+def matchmaking_waiting(queue_size: int) -> dict:
+    return {"type": "matchmaking_waiting", "queue_size": queue_size}
+
+
+def matchmaking_cancelled() -> dict:
+    return {"type": "matchmaking_cancelled"}
 
 
 def stats_payload(rooms: int, players: int, uptime: float) -> dict:

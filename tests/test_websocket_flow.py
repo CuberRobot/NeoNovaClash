@@ -167,13 +167,88 @@ def test_rate_limiter_blocks_flooding():
     assert limiter.strikes == 1
 
 
-def test_disconnect_closes_room_for_opponent(client: TestClient):
+def test_disconnect_starts_reconnect_grace_for_opponent(client: TestClient):
     with two_players(client) as (ws_a, ws_b):
         start_match(ws_a, ws_b)
         ws_a.close()
-        messages = collect(ws_b, {"room_closed"})
-        assert messages[-1]["type"] == "room_closed"
-        assert "离开" in messages[-1]["reason"]
+        message = collect(ws_b, {"opponent_disconnected"})[-1]
+        assert message["type"] == "opponent_disconnected"
+        # 掉线不再是立刻关房，而是给一段重连宽限
+        assert message["grace_seconds"] > 0
+
+
+def test_reconnect_grace_expiry_closes_room():
+    app = create_app(Settings(prepare_timeout=30, reconnect_grace=0))
+    with TestClient(app) as client:
+        with two_players(client) as (ws_a, ws_b):
+            start_match(ws_a, ws_b)
+            ws_a.close()
+            messages = collect(ws_b, {"room_closed"}, limit=20)
+            assert messages[-1]["type"] == "room_closed"
+            assert "重连" in messages[-1]["reason"]
+
+
+def test_player_can_reconnect_with_token(client: TestClient):
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        assert ws_a.receive_json()["type"] == "hello"
+        assert ws_b.receive_json()["type"] == "hello"
+
+        ws_a.send_json({"type": "create_room", "name": "调停者A"})
+        created = collect(ws_a, {"room_joined"})[-1]
+        code, token = created["room_code"], created["token"]
+
+        ws_b.send_json({"type": "join_room", "name": "调停者B", "room_code": code})
+        round_a = collect(ws_a, {"round_start"})[-1]
+        round_b = collect(ws_b, {"round_start"})[-1]
+
+        ws_a.send_json(make_plan(round_a))
+        collect(ws_a, {"plan_accepted"})
+        ws_a.close()
+        collect(ws_b, {"opponent_disconnected"})
+
+        with client.websocket_connect("/ws") as ws_a2:
+            assert ws_a2.receive_json()["type"] == "hello"
+            ws_a2.send_json({"type": "reconnect", "room_code": code, "token": token})
+            sync = collect(ws_a2, {"state_sync"})[-1]
+
+            assert sync["seat"] == 0
+            assert sync["submitted"] is True          # 掉线前提交的方案还在
+            assert sync["score"] == [0, 0]
+            assert len(sync["pool"]) == 6
+            assert collect(ws_b, {"opponent_reconnected"})[-1]["type"] == "opponent_reconnected"
+
+            # 重连后这一局照常打完
+            ws_b.send_json(make_plan(round_b))
+            messages_b = collect(ws_b, {"battle_report"}, limit=20)
+            assert "battle_report" in types_of(messages_b)
+
+
+def test_random_matchmaking_pairs_two_players(client: TestClient):
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        assert ws_a.receive_json()["type"] == "hello"
+        assert ws_b.receive_json()["type"] == "hello"
+
+        ws_a.send_json({"type": "join_random", "name": "调停者A"})
+        waiting = collect(ws_a, {"matchmaking_waiting"})[-1]
+        assert waiting["queue_size"] == 1
+
+        ws_b.send_json({"type": "join_random", "name": "调停者B"})
+        round_a = collect(ws_a, {"round_start"})[-1]
+        round_b = collect(ws_b, {"round_start"})[-1]
+
+        assert round_a["room_code"] == round_b["room_code"]
+        assert len(round_a["pool"]) == 6 and len(round_b["pool"]) == 6
+
+
+def test_matchmaking_can_be_cancelled(client: TestClient):
+    with client.websocket_connect("/ws") as ws:
+        assert ws.receive_json()["type"] == "hello"
+        ws.send_json({"type": "join_random", "name": "调停者A"})
+        collect(ws, {"matchmaking_waiting"})
+
+        ws.send_json({"type": "cancel_matchmaking"})
+
+        assert collect(ws, {"matchmaking_cancelled"})[-1]["type"] == "matchmaking_cancelled"
 
 
 def test_prepare_timeout_auto_submits():

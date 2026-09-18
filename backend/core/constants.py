@@ -29,6 +29,10 @@ MAX_BONUS_PER_FIGHTER = 2
 ROUNDS_TO_WIN = 2
 # 准备阶段限时（秒）
 PREPARE_TIMEOUT_SECONDS = 60
+# 掉线后的重连宽限时间（秒）：期间房间保持存活，对手会看到「等待重连」
+RECONNECT_GRACE_SECONDS = 90
+# 随机匹配队列上限
+MATCHMAKING_QUEUE_LIMIT = 100
 # 单局最大回合数，超过后按剩余血量判定，避免出现无法结束的对局
 MAX_ROUNDS_PER_DUEL = 50
 # 战斗日志上限，防御性上限，避免异常情况下事件列表无限增长
