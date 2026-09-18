@@ -1,0 +1,14 @@
+services:
+  neonovaclash:
+    build: .
+    image: neonovaclash:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      NC_HOST: 0.0.0.0
+      NC_PORT: "8000"
+      NC_PREPARE_TIMEOUT: "60"
+      NC_ROOM_TTL: "1800"
+      NC_MAX_ROOMS: "500"
+      NC_LOG_LEVEL: info
