@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>星陨竞技场 · NeoNovaClash</title>
     <meta name="description" content="双人战前部署、自动演算的回合制策略对战。" />
-    <link rel="stylesheet" href="/static/css/style.css" />
+    <!-- {{ASSET_VERSION}} 由后端注入当前版本号，保证发版后浏览器/Cloudflare 一定拿到新资源 -->
+    <link rel="stylesheet" href="/static/css/style.css?v={{ASSET_VERSION}}" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpolygon points='32,4 58,20 58,44 32,60 6,44 6,20' fill='%237c5cff' opacity='0.85'/%3E%3Cpolygon points='32,14 48,24 48,40 32,50 16,40 16,24' fill='%2367e8f9'/%3E%3C/svg%3E"
@@ -190,6 +191,6 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v={{ASSET_VERSION}}"></script>
   </body>
 </html>

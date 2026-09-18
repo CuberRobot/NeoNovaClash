@@ -166,3 +166,32 @@ def test_prepare_timeout_auto_submits():
             messages_a = collect(ws_a, {"battle_report"}, limit=40)
             assert "plan_auto_submitted" in types_of(messages_a)
             assert "battle_report" in types_of(messages_a)
+
+
+def test_rematch_starts_a_brand_new_match(client: TestClient):
+    """整场结束后双方都请求再来一局，应该重开一局：比分归零、局数回到 1、重新抽池。"""
+
+    with two_players(client) as (ws_a, ws_b):
+        _code, round_a, round_b = start_match(ws_a, ws_b)
+        for _ in range(3):
+            ws_a.send_json(make_plan(round_a))
+            ws_b.send_json(make_plan(round_b))
+            messages_a = collect(ws_a, {"round_start", "game_over"})
+            messages_b = collect(ws_b, {"round_start", "game_over"})
+            if messages_a[-1]["type"] == "game_over":
+                assert messages_b[-1]["type"] == "game_over"
+                break
+            round_a, round_b = messages_a[-1], messages_b[-1]
+        else:  # pragma: no cover - 三局之内必然分出胜负
+            raise AssertionError("三局之内没有分出胜负")
+
+        ws_a.send_json({"type": "rematch"})
+        ws_b.send_json({"type": "rematch"})
+        new_round_a = collect(ws_a, {"round_start"})[-1]
+        new_round_b = collect(ws_b, {"round_start"})[-1]
+
+        assert new_round_a["round_index"] == 1
+        assert new_round_a["score"] == [0, 0]
+        assert new_round_b["round_index"] == 1
+        assert [card["id"] for card in new_round_a["pool"]] != []
+        assert len(new_round_a["pool"]) == 6

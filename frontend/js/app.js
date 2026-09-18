@@ -7,6 +7,9 @@
   const MAX_NAME = 12;
   const PLAY_SPEEDS = [1, 2, 4];
   const BASE_TICK_MS = 520;
+  // 一场回放的总时长预算：事件多的时候自动加快，避免回放吃掉下一局的备战时间
+  const REPLAY_BUDGET_MS = 11000;
+  const MIN_TICK_MS = 60;
 
   const state = {
     ws: null,
@@ -35,6 +38,7 @@
     pendingResult: null,
     pendingGameOver: null,
     nextRound: null,
+    nextRoundDeadline: 0,
     resultTimer: null,
     rules: null,
     rulesLoading: false,
@@ -128,6 +132,7 @@
     state.pendingResult = null;
     state.pendingGameOver = null;
     state.nextRound = null;
+    state.nextRoundDeadline = 0;
     clearTimeout(state.resultTimer);
     state.resultTimer = null;
     hideOverlay();
@@ -209,6 +214,15 @@
       case "game_over":
         onGameOver(message);
         break;
+      case "rematch_started":
+        // 双方都同意再来一局：清掉上一场的残留状态，等 round_start 建新局
+        state.pendingResult = null;
+        state.pendingGameOver = null;
+        state.nextRound = null;
+        state.nextRoundDeadline = 0;
+        state.battle = null;
+        hideOverlay();
+        break;
       case "opponent_rematch":
         toast("对手想再来一局");
         break;
@@ -280,11 +294,16 @@
   function onRoundStart(message) {
     stopTimer();
     state.nextRound = message;
+    state.nextRoundDeadline = Date.now() + (message.deadline_seconds || 60) * 1000;
     // 上一局的战斗回放还没放完，就先把这一局看完再进入下一局
     if (state.battle && state.battle.playing) return;
     if (state.pendingResult) {
-      if (!state.overlayActive) showResultOverlay(state.pendingResult);
-      return;
+      if (!state.overlayActive) {
+        showResultOverlay(state.pendingResult);
+        return;
+      }
+      // 覆盖层已经开着（例如上一场的结算卡片还没关），直接进入新一局，
+      // 保证任何 round_start 都不会被残留状态卡住
     }
     applyNextRound();
   }
@@ -294,6 +313,7 @@
     if (!message) return;
     state.nextRound = null;
     state.pendingResult = null;
+    state.battle = null;
     clearTimeout(state.resultTimer);
     state.resultTimer = null;
     hideOverlay();
@@ -717,12 +737,20 @@
     hideOverlay();
     state.score = message.score || state.score;
     const lineups = message.lineups || [];
+    const events = (message.result && message.result.events) || [];
     state.battle = {
       roundIndex: message.round_index,
-      events: (message.result && message.result.events) || [],
+      events: events,
       index: 0,
       playing: true,
       speed: 1,
+      // 回放按「真实时间」推进：即使标签页在后台被浏览器限流（定时器降到 1 秒），
+      // 每次回调也会一次性补上应该播到的事件，保证整场回放仍在预算时间内结束。
+      startedAt: Date.now(),
+      tickMs: Math.max(
+        MIN_TICK_MS,
+        Math.min(BASE_TICK_MS, Math.round(REPLAY_BUDGET_MS / Math.max(events.length, 1)))
+      ),
       timer: null,
       fighters: lineups.map((team) =>
         team.map((fighter) => ({
@@ -758,7 +786,7 @@
       finishPlayback();
       return;
     }
-    state.battle.timer = setTimeout(scheduleNext, BASE_TICK_MS);
+    state.battle.timer = setTimeout(scheduleNext, state.battle.tickMs);
   }
 
   function scheduleNext() {
@@ -768,12 +796,29 @@
       finishPlayback();
       return;
     }
-    applyEvent(battle.events[battle.index]);
-    battle.index += 1;
+    const step = Math.max(1, (battle.tickMs || BASE_TICK_MS) / battle.speed);
+    const target = Math.min(battle.events.length, Math.floor((Date.now() - battle.startedAt) / step) + 1);
+    let painted = 0;
+    // 上限只是防御性的：一次性补齐即可追上真实时间轴（后台标签页被限流时也能立刻追平）
+    while (battle.index < target && painted < 500) {
+      applyEvent(battle.events[battle.index]);
+      battle.index += 1;
+      painted += 1;
+    }
     renderBoard();
-    el("log-progress").textContent = battle.index + " / " + battle.events.length;
-    const delay = Math.max(60, BASE_TICK_MS / battle.speed);
-    battle.timer = setTimeout(scheduleNext, delay);
+    el("log-progress").textContent = progressText(battle);
+    if (battle.index >= battle.events.length) {
+      finishPlayback();
+      return;
+    }
+    battle.timer = setTimeout(scheduleNext, Math.max(30, step));
+  }
+
+  function progressText(battle) {
+    const base = battle.index + " / " + battle.events.length;
+    if (!state.nextRoundDeadline) return base;
+    const remain = Math.max(0, Math.round((state.nextRoundDeadline - Date.now()) / 1000));
+    return base + " · 下一局剩余 " + remain + "s";
   }
 
   function applyEvent(event, render) {
@@ -915,6 +960,8 @@
       if (battle.index >= battle.events.length) return;
       battle.playing = true;
       el("btn-pause").textContent = "暂停";
+      // 继续播放时重新对齐时间轴，避免暂停期间的时间被算进去
+      battle.startedAt = Date.now() - battle.index * ((battle.tickMs || BASE_TICK_MS) / battle.speed);
       battle.timer = setTimeout(scheduleNext, 120);
     }
   }
@@ -924,6 +971,7 @@
     if (!battle) return;
     const next = (PLAY_SPEEDS.indexOf(battle.speed) + 1) % PLAY_SPEEDS.length;
     battle.speed = PLAY_SPEEDS[next];
+    battle.startedAt = Date.now() - battle.index * ((battle.tickMs || BASE_TICK_MS) / battle.speed);
     el("btn-speed").textContent = battle.speed + "×";
   }
 
@@ -960,11 +1008,17 @@
     const myScore = state.score[state.seat] || 0;
     const opponentScore = state.score[1 - state.seat] || 0;
     const title = result.winner_seat === null ? "本局平局" : result.winner_seat === state.seat ? "你赢下本局" : "本局失利";
+    const remain = state.nextRoundDeadline
+      ? Math.max(0, Math.round((state.nextRoundDeadline - Date.now()) / 1000))
+      : 0;
+    const hint = state.nextRound
+      ? `下一局已经开始计时，准备时间还剩约 ${remain} 秒。`
+      : "下一局马上开始，新的角色池会重新发到手上。";
     showOverlay(
       `<h2>${title}</h2>
        <div class="score-big">${myScore} : ${opponentScore}</div>
        <p>${result.reason || ""}${result.rounds ? "，共 " + result.rounds + " 回合" : ""}</p>
-       <p class="hint">下一局马上开始，新的角色池会重新发到手上。</p>`
+       <p class="hint">${hint}</p>`
     );
     clearTimeout(state.resultTimer);
     state.resultTimer = setTimeout(() => {
@@ -983,6 +1037,10 @@
 
   function showGameOverOverlay(message) {
     state.pendingGameOver = null;
+    // 整场已经结束：清掉「本局结果」相关状态，避免下一场开始时被旧的 pendingResult 拦住
+    state.pendingResult = null;
+    state.nextRound = null;
+    state.nextRoundDeadline = 0;
     stopPlayback();
     state.score = message.score || state.score;
     const win = message.winner_seat === state.seat;
@@ -1161,6 +1219,10 @@
       if (document.visibilityState === "visible" && state.timerHandle) {
         /* 回到标签页时立刻刷新倒计时，避免后台节流造成的偏差 */
         el("timer-text").textContent = Math.ceil(Math.max(0, state.deadlineAt - Date.now()) / 1000) + "s";
+      }
+      // 回到标签页时也让战斗回放立刻追上时间轴
+      if (document.visibilityState === "visible" && state.battle && state.battle.playing) {
+        scheduleNext();
       }
     });
   }

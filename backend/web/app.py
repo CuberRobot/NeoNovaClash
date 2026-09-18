@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__, protocol
@@ -43,6 +43,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.hub = hub
     app.state.settings = settings
 
+    @app.middleware("http")
+    async def frontend_revalidate(request, call_next):
+        """前端资源一律回源校验：否则发版后浏览器（以及 Cloudflare 边缘）会继续用旧的 JS/CSS。"""
+
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
     # ------------------------------------------------------------ HTTP 接口
     @app.get("/api/health", tags=["system"])
     async def health() -> dict:
@@ -72,11 +81,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     frontend_dir: Path = settings.frontend_dir
 
     @app.get("/", include_in_schema=False)
-    async def index() -> FileResponse:
+    async def index() -> Response:
         index_file = frontend_dir / "index.html"
         if not index_file.exists():
             return JSONResponse({"message": "前端资源缺失", "version": __version__}, status_code=500)
-        return FileResponse(index_file)
+        # 注入资源版本号：静态资源的 URL 随版本变化，避免浏览器与 CDN 继续使用旧的 JS/CSS
+        html = index_file.read_text(encoding="utf-8").replace("{{ASSET_VERSION}}", __version__)
+        return HTMLResponse(html)
 
     if frontend_dir.exists():
         app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
