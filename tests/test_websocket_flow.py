@@ -7,8 +7,10 @@ import contextlib
 import pytest
 from fastapi.testclient import TestClient
 
+from backend import protocol
 from backend.config import Settings
 from backend.web.app import create_app
+from backend.web.websocket import RateLimiter
 
 
 @pytest.fixture()
@@ -147,6 +149,22 @@ def test_unknown_message_type_is_rejected(client: TestClient):
         ws.send_json({"type": "launch_missile"})
         error = collect(ws, {"error"})[-1]
         assert "无法识别的消息类型" in error["message"]
+
+
+def test_oversized_message_is_rejected(client: TestClient):
+    with client.websocket_connect("/ws") as ws:
+        assert ws.receive_json()["type"] == "hello"
+        ws.send_text("x" * (protocol.MAX_MESSAGE_BYTES + 10))
+        error = collect(ws, {"error"})[-1]
+        assert "过大" in error["message"]
+
+
+def test_rate_limiter_blocks_flooding():
+    limiter = RateLimiter(window=1.0, limit=3)
+
+    assert [limiter.allow() for _ in range(3)] == [True, True, True]
+    assert limiter.allow() is False
+    assert limiter.strikes == 1
 
 
 def test_disconnect_closes_room_for_opponent(client: TestClient):

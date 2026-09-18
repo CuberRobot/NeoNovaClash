@@ -7,7 +7,7 @@ import contextlib
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -48,9 +48,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """前端资源一律回源校验：否则发版后浏览器（以及 Cloudflare 边缘）会继续用旧的 JS/CSS。"""
 
         response = await call_next(request)
+        # 基础安全响应头：这是个纯前端 + API 的服务，不需要被 iframe 嵌套
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
         if request.url.path.startswith("/static/"):
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
         return response
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """兜底异常处理：不要让玩家看到一堆堆栈，同时把细节写进日志。"""
+
+        logger.exception("处理 %s 时出现未捕获异常", request.url.path)
+        return JSONResponse(
+            {"error": "服务器内部错误", "path": request.url.path, "version": __version__},
+            status_code=500,
+        )
 
     # ------------------------------------------------------------ HTTP 接口
     @app.get("/api/health", tags=["system"])
@@ -63,6 +77,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 players=hub.active_players(),
                 uptime=hub.uptime(),
             ),
+            "totals": {
+                "rooms_created": hub.stats.created,
+                "rooms_closed": hub.stats.closed,
+                "battles_played": hub.stats.battles,
+            },
         }
 
     @app.get("/api/version", tags=["system"])

@@ -23,7 +23,6 @@ STRATEGY_LABELS = {
 # 增益类型
 BONUS_ATK = "atk"
 BONUS_HP = "hp"
-BONUS_LABELS = {BONUS_ATK: "攻击 +2", BONUS_HP: "生命 +4"}
 
 
 @dataclass(frozen=True)

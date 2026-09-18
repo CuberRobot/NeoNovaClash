@@ -463,6 +463,14 @@ select:focus {
   min-width: 180px;
 }
 
+.timer.is-urgent {
+  color: var(--danger);
+}
+
+.timer.is-urgent .timer-bar i {
+  background: linear-gradient(90deg, var(--warn), var(--danger));
+}
+
 .timer-bar {
   flex: 1;
   height: 8px;
@@ -977,9 +985,50 @@ button.tag-badge {
     grid-template-columns: 1fr;
   }
 
-  .code-row strong {
+.code-row strong {
     letter-spacing: 6px;
   }
+}
+
+.code-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.lobby-history {
+  margin-top: 18px;
+}
+
+.lobby-history .history {
+  margin-top: 8px;
+}
+
+.battle-review {
+  max-height: 46vh;
+  overflow-y: auto;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-dim);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-top: 12px;
+}
+
+.battle-review p {
+  margin: 3px 0;
+}
+
+.battle-review p.is-round {
+  color: var(--text);
+  font-weight: 600;
+  margin-top: 8px;
 }
 
 @media (max-width: 560px) {

@@ -175,6 +175,7 @@ docker compose up --build -d
 | 文档 | 内容 |
 | --- | --- |
 | [docs/规则设定.md](docs/规则设定.md) | 玩法规则、角色与标签数值、结算顺序、裁定说明 |
+| [docs/玩家指南.md](docs/玩家指南.md) | 面向玩家的上手流程、进阶技巧与常见问题 |
 | [docs/架构设计.md](docs/架构设计.md) | 分层设计、模块职责、数据流、扩展点 |
 | [docs/通信协议.md](docs/通信协议.md) | HTTP 接口与 WebSocket 消息定义 |
 | [docs/部署指南.md](docs/部署指南.md) | venv / Docker / 反向代理 / 常见问题 |
@@ -182,6 +183,7 @@ docker compose up --build -d
 | [docs/开发流程与版本管理.md](docs/开发流程与版本管理.md) | 分支模型、提交规范、测试门禁、回滚流程 |
 | [docs/开发路线图.md](docs/开发路线图.md) | 后续版本要做什么、优先级与验收标准 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
+| [docs/项目历史.md](docs/项目历史.md) | 项目从哪来、旧实现与手写碎片都放在哪 |
 
 ---
 

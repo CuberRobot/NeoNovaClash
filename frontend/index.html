@@ -67,6 +67,10 @@
             <li>对手在首页输入房间号加入，两人到齐后自动开局</li>
             <li>每局限时 <b id="howto-timeout">60</b> 秒，超时会随机提交</li>
           </ol>
+          <div id="lobby-history" class="lobby-history hidden">
+            <p class="eyebrow">最近战绩</p>
+            <ul id="recent-history" class="history"></ul>
+          </div>
         </div>
       </section>
 
@@ -76,9 +80,12 @@
           <p class="eyebrow">房间号</p>
           <div class="code-row">
             <strong id="room-code">----</strong>
-            <button id="btn-copy" class="ghost" type="button">复制房间号</button>
+            <div class="code-actions">
+              <button id="btn-copy" class="ghost" type="button">复制房间号</button>
+              <button id="btn-copy-link" class="ghost" type="button">复制邀请链接</button>
+            </div>
           </div>
-          <p class="hint">把房间号发给对手，对方在首页输入即可加入。两人到齐后自动开始第一局。</p>
+          <p class="hint">把房间号（或邀请链接）发给对手，对方在首页输入即可加入。两人到齐后自动开始第一局。</p>
           <ul id="waiting-players" class="players"></ul>
           <button id="btn-leave-waiting" class="ghost" type="button">离开房间</button>
         </div>
@@ -94,7 +101,7 @@
             <span class="divider">·</span>
             <span id="prepare-status" class="muted">准备中</span>
           </div>
-          <div class="timer">
+          <div class="timer" id="timer">
             <span id="timer-text">60s</span>
             <div class="timer-bar"><i id="timer-fill"></i></div>
           </div>
@@ -115,7 +122,10 @@
           <section class="panel">
             <header class="panel-head">
               <h2>出击阵容</h2>
-              <button id="btn-clear" class="ghost small" type="button">清空</button>
+              <div class="panel-actions">
+                <button id="btn-review" class="ghost small hidden" type="button">上一局战报</button>
+                <button id="btn-clear" class="ghost small" type="button">清空</button>
+              </div>
             </header>
             <ol id="slots" class="slots"></ol>
             <p class="hint">

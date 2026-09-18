@@ -25,6 +25,23 @@ def test_health_endpoint(client: TestClient):
     assert body["status"] == "ok"
     assert body["version"] == __version__
     assert body["rooms"] == 0
+    assert body["totals"]["rooms_created"] >= 0
+
+
+def test_frontend_reponses_carry_basic_security_headers(client: TestClient):
+    response = client.get("/")
+
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+
+
+def test_static_assets_are_revalidated(client: TestClient):
+    """发版后浏览器与 CDN 必须回源校验，不能继续用旧的 JS/CSS。"""
+
+    response = client.get("/static/js/app.js")
+
+    assert response.status_code == 200
+    assert "no-cache" in response.headers["cache-control"]
 
 
 def test_version_endpoint(client: TestClient):

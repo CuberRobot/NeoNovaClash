@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -13,14 +14,47 @@ from .hub import GameHub, Session
 
 logger = logging.getLogger("neonovaclash.ws")
 
+# 每个连接的消息频率限制：正常玩家一秒最多几条，超过就是在刷接口
+RATE_WINDOW_SECONDS = 1.0
+RATE_MAX_MESSAGES = 25
+# 连续超限多少次就断开连接
+RATE_STRIKE_LIMIT = 5
+
+
+class RateLimiter:
+    """滑动窗口限流：防止单个连接高频刷消息把服务打满。"""
+
+    def __init__(self, window: float = RATE_WINDOW_SECONDS, limit: int = RATE_MAX_MESSAGES) -> None:
+        self.window = window
+        self.limit = limit
+        self.timestamps: list[float] = []
+        self.strikes = 0
+
+    def allow(self) -> bool:
+        now = time.monotonic()
+        self.timestamps = [t for t in self.timestamps if now - t < self.window]
+        if len(self.timestamps) >= self.limit:
+            self.strikes += 1
+            return False
+        self.strikes = 0
+        self.timestamps.append(now)
+        return True
+
 
 async def handle_connection(websocket: WebSocket, hub: GameHub) -> None:
     await websocket.accept()
     session = Session()
+    limiter = RateLimiter()
     await websocket.send_json(protocol.hello())
     try:
         while True:
             raw = await websocket.receive_text()
+            if not limiter.allow():
+                await websocket.send_json(protocol.error("操作过于频繁，请稍后再试"))
+                if limiter.strikes >= RATE_STRIKE_LIMIT:
+                    await websocket.close(code=1008, reason="rate limited")
+                    break
+                continue
             await _handle_raw_message(websocket, hub, session, raw)
     except WebSocketDisconnect:
         logger.debug("连接断开 seat=%s room=%s", session.seat, session.room_code)

@@ -20,6 +20,8 @@ from .core.models import Bonus, Plan, Strategy
 
 SERVER_NAME = "NeoNovaClash"
 PROTOCOL_VERSION = 1
+# 单条消息的大小上限：防止异常客户端把内存打满（正常指令只有几十字节）
+MAX_MESSAGE_BYTES = 8192
 
 
 class ProtocolError(Exception):
@@ -114,6 +116,9 @@ def parse_message(raw: str | bytes | dict) -> InboundMessage:
     """把原始消息解析成协议对象，失败时抛出 ProtocolError。"""
 
     if isinstance(raw, (str, bytes)):
+        size = len(raw.encode("utf-8")) if isinstance(raw, str) else len(raw)
+        if size > MAX_MESSAGE_BYTES:
+            raise ProtocolError("消息过大，已拒绝处理")
         try:
             data = json.loads(raw)
         except (ValueError, UnicodeDecodeError) as exc:

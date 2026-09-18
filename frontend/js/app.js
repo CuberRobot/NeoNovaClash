@@ -10,6 +10,9 @@
   // 一场回放的总时长预算：事件多的时候自动加快，避免回放吃掉下一局的备战时间
   const REPLAY_BUDGET_MS = 11000;
   const MIN_TICK_MS = 60;
+  const HISTORY_KEY = "nc_history";
+  const HISTORY_LIMIT = 5;
+  const RECONNECT_LIMIT = 5;
 
   const state = {
     ws: null,
@@ -35,6 +38,9 @@
     deadlineAt: 0,
     timerHandle: null,
     battle: null,
+    lastBattle: null,
+    urgentWarned: false,
+    reconnectAttempts: 0,
     pendingResult: null,
     pendingGameOver: null,
     nextRound: null,
@@ -137,6 +143,7 @@
     state.resultTimer = null;
     hideOverlay();
     show("screen-lobby");
+    el("timer").classList.remove("is-urgent");
     if (message) toast(message);
   }
 
@@ -152,7 +159,12 @@
 
     ws.onopen = () => {
       state.connected = true;
+      state.reconnectAttempts = 0;
       setConn("ok", "已连接");
+      if (state.roomCode) {
+        // 断线期间服务器已经关闭了房间，重连后回到大厅重新开始
+        resetToLobby("已重新连接；由于断线，上一局已经结束，请重新创建或加入房间");
+      }
     };
 
     ws.onmessage = (event) => {
@@ -169,9 +181,17 @@
       state.connected = false;
       setConn("bad", "已断开");
       if (!state.overlayActive) {
+        if (state.reconnectAttempts < RECONNECT_LIMIT) {
+          state.reconnectAttempts += 1;
+          const delay = Math.min(8000, 500 * 2 ** state.reconnectAttempts);
+          setConn("warn", `重连中…（${state.reconnectAttempts}/${RECONNECT_LIMIT}）`);
+          clearTimeout(state.reconnectTimer);
+          state.reconnectTimer = setTimeout(connect, delay);
+          return;
+        }
         showOverlay(
           `<h2>与服务器断开连接</h2>
-           <p>房间已经关闭，刷新页面即可重新开始一局。</p>
+           <p>多次自动重连都没有成功。检查网络后刷新页面即可重新开始。</p>
            <div class="overlay-actions"><button class="primary" onclick="location.reload()">刷新重连</button></div>`
         );
       }
@@ -280,14 +300,94 @@
   function copyRoomCode() {
     const code = state.roomCode || "";
     if (!code) return;
+    copyText(code, "房间号已复制：" + code);
+  }
+
+  function copyInviteLink() {
+    const code = state.roomCode || "";
+    if (!code) return;
+    const link = `${location.origin}${location.pathname}?room=${code}`;
+    copyText(link, "邀请链接已复制：" + link);
+  }
+
+  function copyText(text, okMessage) {
+    if (!text) return;
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(code).then(
-        () => toast("房间号已复制：" + code),
-        () => toast("复制失败，请手动记录房间号 " + code, true)
+      navigator.clipboard.writeText(text).then(
+        () => toast(okMessage),
+        () => toast("复制失败，请手动复制：" + text, true)
       );
     } else {
-      toast("房间号：" + code);
+      toast("请手动复制：" + text);
     }
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(
+      /[&<>"']/g,
+      (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch])
+    );
+  }
+
+  function showBattleReview() {
+    const review = state.lastBattle;
+    if (!review) {
+      toast("还没有可以回看的战报");
+      return;
+    }
+    const rows = review.lines
+      .map((line) => `<p class="${line.kind === "round_start" ? "is-round" : ""}">${escapeHtml(line.text)}</p>`)
+      .join("");
+    showOverlay(
+      `<h2>第 ${review.roundIndex} 局战报</h2>
+       <div class="battle-review">${rows}</div>
+       <div class="overlay-actions"><button class="primary" id="btn-review-close" type="button">关闭</button></div>`
+    );
+    el("btn-review-close").addEventListener("click", hideOverlay);
+  }
+
+  /* ------------------------------------------------------------ 最近战绩 */
+  function readHistory() {
+    try {
+      const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+      return Array.isArray(list) ? list : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function recordMatch(win, myScore, opponentScore) {
+    const list = readHistory();
+    list.unshift({ at: Date.now(), win: win, my: myScore, opp: opponentScore });
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_LIMIT)));
+    } catch (err) {
+      /* 隐私模式下写不了就跳过 */
+    }
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const box = el("lobby-history");
+    const list = el("recent-history");
+    const items = readHistory();
+    box.classList.toggle("hidden", items.length === 0);
+    list.innerHTML = "";
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      const when = new Date(item.at).toLocaleString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const left = document.createElement("span");
+      left.textContent = `${when} · ${item.win ? "胜" : "负"}`;
+      const right = document.createElement("span");
+      right.textContent = `${item.my} : ${item.opp}`;
+      li.append(left, right);
+      list.appendChild(li);
+    });
   }
 
   /* ------------------------------------------------------------ 备战 */
@@ -343,6 +443,7 @@
   function renderPrepare() {
     el("round-index").textContent = String(state.roundIndex);
     el("score-display").textContent = state.score.join(" : ");
+    el("btn-review").classList.toggle("hidden", !state.lastBattle);
     renderPool();
     renderSlots();
     renderStrategy();
@@ -709,12 +810,20 @@
   /* ------------------------------------------------------------ 计时 */
   function startTimer(seconds) {
     stopTimer();
+    state.urgentWarned = false;
+    el("timer").classList.remove("is-urgent");
     state.deadlineAt = Date.now() + seconds * 1000;
     const total = seconds * 1000;
     const tick = () => {
       const remain = Math.max(0, state.deadlineAt - Date.now());
       el("timer-text").textContent = Math.ceil(remain / 1000) + "s";
       el("timer-fill").style.width = (total ? (remain / total) * 100 : 0) + "%";
+      const urgent = remain > 0 && remain <= 10000;
+      el("timer").classList.toggle("is-urgent", urgent);
+      if (urgent && !state.urgentWarned) {
+        state.urgentWarned = true;
+        toast("准备时间只剩 10 秒，超时系统会随机提交方案");
+      }
       if (remain <= 0) {
         stopTimer();
         el("prepare-status").textContent = "时间到，系统正在自动提交…";
@@ -738,6 +847,10 @@
     state.score = message.score || state.score;
     const lineups = message.lineups || [];
     const events = (message.result && message.result.events) || [];
+    state.lastBattle = {
+      roundIndex: message.round_index,
+      lines: events.map((event) => ({ round: event.round, kind: event.kind, text: event.text })),
+    };
     state.battle = {
       roundIndex: message.round_index,
       events: events,
@@ -1046,6 +1159,7 @@
     const win = message.winner_seat === state.seat;
     const myScore = state.score[state.seat] || 0;
     const opponentScore = state.score[1 - state.seat] || 0;
+    recordMatch(win, myScore, opponentScore);
     const history = (message.history || [])
       .map((item) => {
         const label = item.winner_seat === null ? "平局" : item.winner_seat === state.seat ? "胜" : "负";
@@ -1199,6 +1313,8 @@
     });
 
     el("btn-copy").addEventListener("click", copyRoomCode);
+    el("btn-copy-link").addEventListener("click", copyInviteLink);
+    el("btn-review").addEventListener("click", showBattleReview);
     el("btn-leave-waiting").addEventListener("click", () => {
       send({ type: "leave_room" });
       resetToLobby("已离开房间");
@@ -1213,6 +1329,16 @@
     el("select-tag").addEventListener("change", (event) => {
       state.strategy.tag = event.target.value;
       updateSubmitState();
+    });
+
+    // 回车提交：在备战页且方案合法时，直接触发提交（输入框/下拉里不拦截）
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      const tag = (event.target && event.target.tagName) || "";
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      const inPrepare = document.querySelector("#screen-prepare.is-active");
+      const submit = el("btn-submit");
+      if (inPrepare && submit && !submit.disabled) submit.click();
     });
 
     document.addEventListener("visibilitychange", () => {
@@ -1232,6 +1358,8 @@
     bindEvents();
     connect();
     loadRules();
+    renderHistory();
+    applyInviteLink();
     fetch("/api/version")
       .then((response) => response.json())
       .then((data) => {
@@ -1246,6 +1374,14 @@
     setInterval(() => {
       if (state.ws && state.ws.readyState === WebSocket.OPEN) send({ type: "ping" });
     }, 25000);
+  }
+
+  function applyInviteLink() {
+    const invited = (new URLSearchParams(location.search).get("room") || "").trim().toUpperCase();
+    if (!invited) return;
+    el("input-code").value = invited;
+    el("lobby-hint").textContent = `已填入邀请的房间号 ${invited}，填好昵称后点「加入房间」即可。`;
+    el("input-name").focus();
   }
 
   document.addEventListener("DOMContentLoaded", main);

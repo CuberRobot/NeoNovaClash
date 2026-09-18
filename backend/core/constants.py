@@ -12,7 +12,6 @@ POOL_SIZE = 6
 # 抽池机制：双方共用卡池抽 POOL_SIZE*2 张后对半切，因此两人不会拿到同一名角色
 MIN_TAGGED_PER_POOL = 2        # 每个池子至少要有几名带标签的角色，保证有构筑空间
 MAX_SAME_TAG_PER_POOL = 2      # 同一标签在单个池子里最多出现几次，避免池子过度同质
-POOL_FAIRNESS_TRIES = 400      # 抽取均衡池子的最大尝试次数
 INITIATIVE_TOLERANCE = 4       # 双方池子先手值总和的允许差距
 HP_TOLERANCE_RATIO = (12, 100)   # 双方池子总生命的允许差距（比例）
 ATK_TOLERANCE_RATIO = (15, 100)  # 双方池子总攻击的允许差距（比例）
@@ -79,5 +78,4 @@ EXECUTE_SCALE = (15, 10)
 # 房间号长度
 ROOM_CODE_LENGTH = 4
 # 玩家昵称长度限制
-PLAYER_NAME_MIN = 1
 PLAYER_NAME_MAX = 12
