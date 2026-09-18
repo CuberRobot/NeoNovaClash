@@ -8,6 +8,7 @@ import pytest
 
 from backend.core import constants as C
 from backend.core import rules
+from backend.core import tags as taglib
 from backend.core.models import BONUS_ATK, BONUS_HP, Bonus, Plan, Strategy
 
 
@@ -151,3 +152,23 @@ def test_simulate_runs_a_full_round_and_returns_result():
     assert result.winner_team in (0, 1)
     assert result.rounds >= 1
     assert len(result.events) > 5
+
+
+def test_roster_is_complete_and_every_tag_is_implemented():
+    characters = rules.roster()
+
+    assert len(characters) == 20
+    assert len({c.id for c in characters}) == 20
+    for character in characters:
+        assert character.tag in taglib.TAGS, character.name
+        if character.tag != "none":
+            assert taglib.get_runtime(character.tag) is not None, character.name
+
+
+def test_pool_only_contains_characters_from_active_roster():
+    rng = random.Random(77)
+    active_ids = {c.id for c in rules.roster()}
+
+    for _ in range(50):
+        pool = rules.generate_pool(rng)
+        assert {c.id for c in pool} <= active_ids

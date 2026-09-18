@@ -40,7 +40,7 @@ def test_rules_endpoint_matches_game_data(client: TestClient):
 
     assert body["constants"]["pool_size"] == 6
     assert body["constants"]["team_size"] == 3
-    assert len(body["characters"]) == 12
+    assert len(body["characters"]) == 20
     assert any(tag["key"] == "explosive" for tag in body["tags"])
     assert len(body["strategies"]) == 3
 

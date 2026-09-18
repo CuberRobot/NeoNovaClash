@@ -57,6 +57,16 @@ POISON_DAMAGE = 3
 POISON_DURATION = 3
 # 中毒：最大叠加层数
 POISON_MAX_STACKS = 3
+# 吸血：造成伤害的 25% 转为自身回复
+LIFESTEAL_SCALE = (1, 4)
+# 吸血：单次攻击的回复上限
+LIFESTEAL_CAP = 5
+# 反弹：实际受到伤害的 40% 反弹给攻击者
+THORNS_SCALE = (2, 5)
+# 斩杀：目标当前生命 <= 最大生命的 25% 时触发
+EXECUTE_THRESHOLD_SCALE = (1, 4)
+# 斩杀：触发后本次伤害为原本的 150%
+EXECUTE_SCALE = (15, 10)
 
 # ---------------------------------------------------------------- 房间与协议
 # 房间号长度

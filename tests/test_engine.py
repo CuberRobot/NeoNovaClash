@@ -22,6 +22,9 @@ ARCHER = 9
 BERSERKER = 10
 POISONER = 11
 ARTILLERY = 12
+LIFESTEALER = 18
+THORNS_GUARD = 19
+EXECUTIONER = 20
 
 
 def test_battle_is_reproducible_with_same_seed():
@@ -330,3 +333,122 @@ def test_full_battle_produces_readable_report():
     assert result.winner_team in (0, 1)
     assert all(event.text for event in result.events)
     assert len(result.teams) == 2 and len(result.teams[0]) == 3
+
+
+# ---------------------------------------------------------------- 扩展标签（v0.3.0）
+
+
+def test_lifesteal_heals_quarter_of_damage_dealt():
+    leech = make_fighter(LIFESTEALER, 0, 0)          # 噬魂者 ATK 6
+    leech.hp = 5
+    victim = make_fighter(BALANCE_A, 1, 0, hp=200)
+    battle = make_battle([leech], [victim])
+    battle._battle_start()
+
+    battle.resolve_attack(leech, victim)
+
+    heals = [e for e in battle.events if e.kind == "heal"]
+    expected = leech.atk * C.LIFESTEAL_SCALE[0] // C.LIFESTEAL_SCALE[1]
+    assert [e.data["amount"] for e in heals] == [expected]
+    assert leech.hp == 5 + expected
+
+
+def test_lifesteal_is_capped_per_hit():
+    leech = make_fighter(LIFESTEALER, 0, 0, atk=40)
+    leech.hp = 1
+    victim = make_fighter(BALANCE_A, 1, 0, hp=200)
+    battle = make_battle([leech], [victim])
+    battle._battle_start()
+
+    battle.resolve_attack(leech, victim)
+
+    assert leech.hp == 1 + C.LIFESTEAL_CAP
+
+
+def test_lifesteal_not_triggered_by_explosive():
+    bomber = make_fighter(EXPLOSIVE, 0, 0, tags=["explosive", "lifesteal"])
+    victim = make_fighter(BALANCE_A, 1, 0, hp=200)
+    battle = make_battle([bomber], [victim])
+    battle._battle_start()
+
+    battle.resolve_attack(bomber, victim)
+
+    assert "heal" not in event_kinds(battle)
+
+
+def test_thorns_reflects_forty_percent_of_damage_taken():
+    attacker = make_fighter(BALANCE_A, 0, 0, atk=10)
+    guard = make_fighter(THORNS_GUARD, 1, 0)
+    battle = make_battle([attacker], [guard])
+    battle._battle_start()
+
+    battle.resolve_attack(attacker, guard)
+
+    expected = 10 * C.THORNS_SCALE[0] // C.THORNS_SCALE[1]
+    assert guard.max_hp - guard.hp == 10
+    assert attacker.max_hp - attacker.hp == expected
+    assert "thorns" in event_kinds(battle)
+
+
+def test_thorns_damage_bypasses_heavy_armor():
+    attacker = make_fighter(HEAVY_ARMOR, 0, 0, atk=20, hp=60)
+    guard = make_fighter(THORNS_GUARD, 1, 0)
+    battle = make_battle([attacker], [guard])
+    battle._battle_start()
+
+    battle.resolve_attack(attacker, guard)
+
+    # 8 点反弹伤害不会被重装盔甲减免（否则只会掉 4 点）
+    raw = 20 * C.THORNS_SCALE[0] // C.THORNS_SCALE[1]
+    armored = raw * C.HEAVY_ARMOR_SCALE[0] // C.HEAVY_ARMOR_SCALE[1]
+    assert attacker.max_hp - attacker.hp == raw
+    assert raw != armored
+
+
+def test_thorns_not_triggered_by_explosive_damage():
+    bomber = make_fighter(EXPLOSIVE, 0, 0)
+    guard = make_fighter(THORNS_GUARD, 1, 0)          # 最大生命 28 > 26，走普通伤害
+    battle = make_battle([bomber], [guard])
+    battle._battle_start()
+
+    battle.resolve_attack(bomber, guard)
+
+    assert "thorns" not in event_kinds(battle)
+    assert not bomber.alive
+
+
+def test_execute_boosts_damage_on_low_hp_target():
+    executioner = make_fighter(EXECUTIONER, 0, 0)
+    target = make_fighter(BALANCE_A, 1, 0)
+    target.hp = target.max_hp // 4                          # 刚好达到斩杀线
+    battle = make_battle([executioner], [target])
+    battle._battle_start()
+
+    battle.resolve_attack(executioner, target)
+
+    expected = executioner.atk * C.EXECUTE_SCALE[0] // C.EXECUTE_SCALE[1]
+    assert [d["amount"] for d in damage_events(battle, executioner.uid)] == [expected]
+
+
+def test_execute_not_triggered_above_threshold():
+    executioner = make_fighter(EXECUTIONER, 0, 0)
+    target = make_fighter(BALANCE_A, 1, 0)
+    target.hp = target.max_hp // 4 + 1
+    battle = make_battle([executioner], [target])
+    battle._battle_start()
+
+    battle.resolve_attack(executioner, target)
+
+    assert [d["amount"] for d in damage_events(battle, executioner.uid)] == [executioner.atk]
+
+
+def test_thorns_and_heavy_armor_can_coexist_without_looping():
+    attacker = make_fighter(THORNS_GUARD, 0, 0, atk=12)
+    defender = make_fighter(THORNS_GUARD, 1, 0)
+    battle = make_battle([attacker], [defender])
+    battle._battle_start()
+
+    battle.resolve_attack(attacker, defender)
+
+    # 只有一次反弹：反弹伤害不会在双方之间来回弹
+    assert event_kinds(battle).count("thorns") == 1

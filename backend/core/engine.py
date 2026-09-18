@@ -9,8 +9,8 @@
 1. 开战：诅咒巫师剥夺标签 → 判定先手
 2. 每轮开始：中毒统一结算
 3. 按出击位依次行动：A1 → B1 → A2 → B2 → A3 → B3（先手方先动）
-4. 单次攻击内部：攻击方修正（狂暴）→ 自爆判定 → 护盾分担 → 受击方减伤（重装盔甲）
-   → 扣血 → 命中后效果（中毒 / 穿透）→ 自爆反噬
+4. 单次攻击内部：攻击方修正（狂暴 / 斩杀）→ 自爆判定 → 护盾分担 → 受击方减伤（重装盔甲）
+   → 扣血与阵亡处理 → 受击后效果（反弹）→ 命中后效果（中毒 / 穿透 / 吸血）→ 自爆反噬
 5. 任一阶段出现阵亡立即处理复活，并在任一方全灭时立刻结束战斗
 
 注意：战斗会直接修改传入的 Fighter 对象（扣血、施加中毒等）。
@@ -41,6 +41,7 @@ class HitContext:
     follow_up: bool = False      # 来自箭矢穿透的追击伤害
     explosive: bool = False      # 来自自爆步兵的伤害
     transferred: bool = False    # 由护盾部署者承担后落在其身上的伤害
+    reflected: bool = False      # 来自反弹的伤害：不经护盾/减伤，也不会再次反弹
 
 
 # 默认上下文做成单例，避免在函数默认参数里反复构造对象
@@ -285,7 +286,7 @@ class Battle:
         lethal: bool,
         ignore_shield: bool,
     ) -> int:
-        """护盾分担 → 承伤修正 → 扣血，返回目标实际损失的生命。"""
+        """护盾分担 → 承伤修正 → 扣血 → 反弹，返回目标实际损失的生命。"""
 
         if damage <= 0 or not target.alive:
             return 0
@@ -296,7 +297,7 @@ class Battle:
 
         # 护盾分担
         total_loss = 0
-        if not lethal and not ignore_shield and not ctx.transferred:
+        if not lethal and not ignore_shield and not ctx.transferred and not ctx.reflected:
             bearer = self._shield_bearer(target)
             if bearer is not None:
                 shared = taglib.scale_ratio(damage, C.SHIELD_SCALE)
@@ -323,7 +324,7 @@ class Battle:
                     return total_loss
 
         # 受击方修正（重装盔甲；追击伤害同样会被减伤）
-        if not lethal:
+        if not lethal and not ctx.reflected:
             for runtime in taglib.runtime_for(target):
                 if runtime.modify_incoming is not None:
                     damage = runtime.modify_incoming(self, target, attacker, damage, ctx)
@@ -359,7 +360,28 @@ class Battle:
             )
         if not target.alive or target.hp <= 0:
             self.kill(target, killer=attacker, reason="战斗中被击杀")
+
+        # 受击后效果（反弹）：自爆与反弹伤害本身不会触发
+        if not ctx.reflected and not ctx.explosive:
+            for runtime in taglib.runtime_for(target):
+                if runtime.on_damaged is not None:
+                    runtime.on_damaged(self, target, attacker, loss, ctx)
         return total_loss
+
+    def apply_raw_damage(self, source: Fighter, target: Fighter, damage: int) -> int:
+        """把伤害直接打在目标身上：不经护盾、不受重装减免，也不会再次触发反弹。"""
+
+        if damage <= 0 or not target.alive:
+            return 0
+        return self._deal_damage(
+            source,
+            target,
+            damage,
+            ctx=HitContext(reflected=True),
+            follow_up=False,
+            lethal=False,
+            ignore_shield=True,
+        )
 
     def _shield_bearer(self, target: Fighter) -> Fighter | None:
         """找到能为 target 分担伤害的护盾部署者（不能为自己分担）。"""

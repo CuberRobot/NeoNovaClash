@@ -1,10 +1,11 @@
-"""基础角色数据。
+"""角色数据。
 
 数值来源：
-- 旧项目手写碎片（NCinit）：v0.5 十二名基础角色
-- 旧项目设定文档：v1.1 / v1.2 平衡性调整（自爆步兵 HP=3、均衡战士 C ATK=5 等）
+- 旧项目手写碎片（NCinit）：十二名基础角色
+- 旧项目设定文档与 v1.2 更新日志：平衡性调整（自爆步兵 HP=3、均衡战士 C ATK=5 等），
+  以及 13-20 号扩展角色（旧项目 v1.2 起加入卡池）
 
-标签 key 与 tags.py 一一对应，新增角色只需在 BASE_ROSTER 里追加一条数据。
+标签 key 与 tags.py 一一对应；新增角色只需在对应花名册里追加一条数据。
 """
 
 from __future__ import annotations
@@ -43,7 +44,22 @@ BASE_ROSTER: tuple[Character, ...] = (
     Character(12, "重炮统领", "输出", 4, 25, 7, "aoe", "毁灭星域", "一次攻击震荡全场，同时压低敌方血线。"),
 )
 
-CHARACTER_BY_ID: dict[int, Character] = {c.id: c for c in BASE_ROSTER}
+# 8 名扩展角色（旧项目 v1.2 加入卡池，让阵容构筑真正有取舍）
+EXTENDED_ROSTER: tuple[Character, ...] = (
+    Character(13, "均衡战士D", "均衡", 7, 22, 5, "none", "平衡星域", "尖锐菱面水晶构成，攻击倾向更明显。"),
+    Character(14, "均衡战士E", "均衡", 5, 25, 5, "none", "平衡星域", "厚实立方水晶构成，防御更稳健。"),
+    Character(15, "暗影猎手", "输出", 6, 22, 4, "pierce", "迅流星域", "黑曜水晶与银色晶线，穿透脆皮后继续追击。"),
+    Character(16, "血怒斗士", "输出", 7, 18, 5, "berserk", "怒火星域", "血量越低，体内水晶越炽热，伤害越高。"),
+    Character(17, "晶壁守卫", "前排", 4, 28, 6, "heavy_armor", "重装星域", "多层晶壁叠加，重击会被折叠压缩。"),
+    Character(18, "噬魂者", "输出", 6, 22, 5, "lifesteal", "幽暗星域", "深紫吞噬水晶，命中即抽取伤者的生机。"),
+    Character(19, "荆棘守卫", "前排", 4, 28, 6, "thorns", "守护星域", "体表布满反向晶刺，受伤时反噬来敌。"),
+    Character(20, "处决者", "输出", 7, 20, 5, "execute", "毁灭星域", "刀锋状水晶，专门收割残血目标。"),
+)
+
+# 当前启用的卡池：12 名基础角色 + 8 名扩展角色
+ACTIVE_ROSTER: tuple[Character, ...] = BASE_ROSTER + EXTENDED_ROSTER
+
+CHARACTER_BY_ID: dict[int, Character] = {c.id: c for c in ACTIVE_ROSTER}
 
 
 def get_character(char_id: int) -> Character:
@@ -55,4 +71,4 @@ def get_character(char_id: int) -> Character:
 def roster() -> tuple[Character, ...]:
     """当前启用的角色池。"""
 
-    return BASE_ROSTER
+    return ACTIVE_ROSTER

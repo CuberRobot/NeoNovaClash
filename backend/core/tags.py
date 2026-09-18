@@ -146,6 +146,39 @@ TAGS: dict[str, TagSpec] = {
             "每个目标分别计算狂暴、斩杀等攻击方修正，也分别触发护盾、重装盔甲与反弹。"
         ),
     ),
+    "lifesteal": TagSpec(
+        key="lifesteal",
+        name="吸血",
+        summary=(
+            f"造成伤害的 {C.LIFESTEAL_SCALE[0] * 100 // C.LIFESTEAL_SCALE[1]}% 转为自身回复，"
+            f"单次最多 {C.LIFESTEAL_CAP} 点。"
+        ),
+        detail=(
+            f"每次命中后按本次实际造成伤害的 25%（向下取整，单次上限 {C.LIFESTEAL_CAP}）回复自身生命。"
+            "自爆伤害不触发吸血，箭矢穿透的追击伤害同样不触发。"
+        ),
+    ),
+    "thorns": TagSpec(
+        key="thorns",
+        name="反弹",
+        summary=f"受到伤害后，按实际伤害的 {C.THORNS_SCALE[0] * 100 // C.THORNS_SCALE[1]}% 反弹给攻击者。",
+        detail=(
+            "受到伤害后（含被这一击打死的当次）按实际损失生命的 40%（向下取整）反弹给攻击者。"
+            "反弹伤害不经过护盾分摊、不受重装盔甲减免，也不会再次触发反弹；自爆伤害不会被反弹。"
+        ),
+    ),
+    "execute": TagSpec(
+        key="execute",
+        name="斩杀",
+        summary=(
+            "目标当前生命 ≤ 最大生命的 "
+            f"{C.EXECUTE_THRESHOLD_SCALE[0] * 100 // C.EXECUTE_THRESHOLD_SCALE[1]}% 时，本次伤害 ×1.5。"
+        ),
+        detail=(
+            "出手瞬间若目标的当前生命不超过其最大生命的 25%，本次伤害提升至 150%（向下取整）。"
+            "判定只看目标当前生命与最大生命，与自身状态无关。"
+        ),
+    ),
 }
 
 
@@ -164,6 +197,7 @@ class TagRuntime:
     modify_outgoing: Callable[[Battle, Fighter, Fighter, int, HitContext], int] | None = None
     modify_incoming: Callable[[Battle, Fighter, Fighter, int, HitContext], int] | None = None
     on_hit: Callable[[Battle, Fighter, Fighter, int, HitContext], None] | None = None
+    on_damaged: Callable[[Battle, Fighter, Fighter, int, HitContext], None] | None = None
 
     hooks: list[str] = field(default_factory=list)
 
@@ -204,6 +238,51 @@ def _curse_on_battle_start(battle: Battle, owner: Fighter) -> None:
     battle.resolve_curse(owner)
 
 
+def _lifesteal_on_hit(battle: Battle, attacker: Fighter, target: Fighter, dealt: int, ctx: HitContext) -> None:
+    """吸血：按本次实际伤害回复自身；自爆与追击伤害不触发。"""
+
+    if ctx.explosive or ctx.follow_up or dealt <= 0:
+        return
+    heal = min(_scale(dealt, *C.LIFESTEAL_SCALE), C.LIFESTEAL_CAP)
+    battle.heal(attacker, heal, source="lifesteal")
+
+
+def _thorns_on_damaged(battle: Battle, defender: Fighter, attacker: Fighter, loss: int, ctx: HitContext) -> None:
+    """反弹：受伤后按实际损失反弹给攻击者，反弹伤害不再触发任何承伤类效果。"""
+
+    if ctx.explosive or ctx.reflected or loss <= 0 or not attacker.alive:
+        return
+    amount = _scale(loss, *C.THORNS_SCALE)
+    if amount <= 0:
+        return
+    battle.log(
+        "thorns",
+        f"{defender.position} {defender.name} 的荆棘反弹 {amount} 点伤害给 {attacker.position} {attacker.name}",
+        defender=defender.uid,
+        attacker=attacker.uid,
+        amount=amount,
+    )
+    battle.apply_raw_damage(defender, attacker, amount)
+
+
+def _execute_outgoing(battle: Battle, attacker: Fighter, target: Fighter, damage: int, ctx: HitContext) -> int:
+    """斩杀：目标残血时本次伤害提升至 150%。"""
+
+    threshold = _scale(target.max_hp, *C.EXECUTE_THRESHOLD_SCALE)
+    if target.hp <= threshold:
+        boosted = _scale(damage, *C.EXECUTE_SCALE)
+        battle.log(
+            "tag",
+            f"斩杀判定：{target.position} {target.name} 当前生命 {target.hp} ≤ {threshold}，伤害 {damage} → {boosted}",
+            attacker=attacker.uid,
+            target=target.uid,
+            before=damage,
+            after=boosted,
+        )
+        return boosted
+    return damage
+
+
 def _scale(value: int, num: int, den: int) -> int:
     """整数比例运算，一律向下取整，避免浮点误差影响对局复现。"""
 
@@ -227,6 +306,9 @@ RUNTIME: dict[str, TagRuntime] = {
     "berserk": TagRuntime(key="berserk", modify_outgoing=_berserk_outgoing, hooks=["modify_outgoing"]),
     "poison": TagRuntime(key="poison", on_hit=_poison_on_hit, hooks=["on_hit"]),
     "aoe": TagRuntime(key="aoe", targets_all=True, hooks=["targets_all"]),
+    "lifesteal": TagRuntime(key="lifesteal", on_hit=_lifesteal_on_hit, hooks=["on_hit"]),
+    "thorns": TagRuntime(key="thorns", on_damaged=_thorns_on_damaged, hooks=["on_damaged"]),
+    "execute": TagRuntime(key="execute", modify_outgoing=_execute_outgoing, hooks=["modify_outgoing"]),
 }
 
 
