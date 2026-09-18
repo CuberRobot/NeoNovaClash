@@ -7,7 +7,12 @@
 #
 # IP 段来自 Cloudflare 官方：https://www.cloudflare.com/ips-v4 与 ips-v6
 # Cloudflare 会不定期更新，建议每隔几个月对一次。
+#
+# 127.0.0.1 / ::1 这两条是给 Cloudflare Tunnel 用的：
+# 走隧道时请求来自本机的 cloudflared，真实访客 IP 在 CF-Connecting-IP 里。
 
+set_real_ip_from 127.0.0.1;
+set_real_ip_from ::1;
 set_real_ip_from 173.245.48.0/20;
 set_real_ip_from 103.21.244.0/22;
 set_real_ip_from 103.22.200.0/22;

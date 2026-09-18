@@ -1,0 +1,28 @@
+# Cloudflare Tunnel（命名隧道）配置
+#
+# 安装位置：/etc/cloudflared/config.yml（权限 600）
+# 安装步骤见 docs/宝塔面板部署.md 第 12 节。
+#
+# 关于密钥：
+# - 这里的 tunnel ID 不是密钥，它会出现在 DNS 的 CNAME 目标（<ID>.cfargotunnel.com）里，属公开信息；
+# - 真正的凭据是同目录下的 <ID>.json 文件与 ~/.cloudflared/cert.pem，**绝对不要提交到仓库**。
+#
+# 为什么指向 127.0.0.1:80 而不是应用端口 8010：
+# 让 nginx 继续负责 Host 路由与 www → 主域名 301 跳转；
+# httpHostHeader 显式写死，保证 nginx 拿到的是访客请求的域名而不是 127.0.0.1。
+
+tunnel: 68abe33c-f8e1-45cc-b489-759bfe67bd3f
+credentials-file: /root/.cloudflared/68abe33c-f8e1-45cc-b489-759bfe67bd3f.json
+
+ingress:
+  - hostname: novaclash.cc
+    service: http://127.0.0.1:80
+    originRequest:
+      httpHostHeader: novaclash.cc
+      connectTimeout: 10s
+  - hostname: www.novaclash.cc
+    service: http://127.0.0.1:80
+    originRequest:
+      httpHostHeader: www.novaclash.cc
+      connectTimeout: 10s
+  - service: http_status:404
