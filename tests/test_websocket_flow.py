@@ -20,26 +20,26 @@ def client() -> TestClient:
         yield test_client
 
 
-def make_plan(round_start: dict) -> dict:
+def make_plan(round_start: dict, team_size: int | None = None, bonus_count: int | None = None) -> dict:
     """根据收到的角色池拼一份一定合法的方案（自爆步兵自动放在首位）。"""
 
     pool = round_start["pool"]
     ids = [card["id"] for card in pool]
     first_ids = [card["id"] for card in pool if card["place_first"]]
-    selection = ids[:3]
+    size = team_size or len(ids) // 2
+    count = bonus_count or 4
+    selection = ids[:size]
     for char_id in first_ids:
         if char_id in selection:
             selection.remove(char_id)
             selection.insert(0, char_id)
+    bonuses = [
+        {"slot": (index % size) + 1, "kind": "atk" if index % 2 == 0 else "hp"} for index in range(count)
+    ]
     return {
         "type": "submit_plan",
         "selection": selection,
-        "bonuses": [
-            {"slot": 1, "kind": "atk"},
-            {"slot": 1, "kind": "hp"},
-            {"slot": 2, "kind": "atk"},
-            {"slot": 2, "kind": "hp"},
-        ],
+        "bonuses": bonuses,
         "strategy": {"kind": "lowest_hp", "tag": None},
     }
 
@@ -306,6 +306,89 @@ def test_matchmaking_is_isolated_by_mode(client: TestClient):
 
             assert round_a["mode"] == "chaos"
             assert round_a["room_code"] == round_c["room_code"]
+
+
+def test_joining_by_room_code_adopts_the_room_mode(client: TestClient):
+    """用房间号加入时以房间的模式为准，加入者自己的模式偏好不会污染对局。"""
+
+    with two_players(client) as (ws_a, ws_b):
+        assert ws_a.receive_json()["type"] == "hello"
+        assert ws_b.receive_json()["type"] == "hello"
+
+        ws_a.send_json({"type": "create_room", "name": "房主", "mode": "chaos"})
+        created = collect(ws_a, {"room_joined"})[-1]
+        assert created["mode"] == "chaos"
+        assert created["mode_name"] == "混沌模式"
+
+        # 加入者带着"大战场"的偏好进来（join_room 不接受 mode，这里故意多发一个脏字段）
+        ws_b.send_json(
+            {
+                "type": "join_room",
+                "name": "加入者",
+                "room_code": created["room_code"],
+                "mode": "big_battlefield",
+            }
+        )
+        round_a = collect(ws_a, {"round_start"})[-1]
+        round_b = collect(ws_b, {"round_start"})[-1]
+
+        for message in (round_a, round_b):
+            assert message["mode"] == "chaos"          # 房间说了算
+            assert message["random_tags"] is True
+            assert message["team_size"] == 3           # 不是大战场模式
+            assert message["pool_size"] == 6
+            assert len(message["pool"]) == 6
+            assert all(card["id"] != 4 for card in message["pool"])  # 混沌模式没有自爆步兵
+
+
+def test_rematch_keeps_the_room_mode(client: TestClient):
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        assert ws_a.receive_json()["type"] == "hello"
+        assert ws_b.receive_json()["type"] == "hello"
+
+        ws_a.send_json({"type": "create_room", "name": "调停者A", "mode": "big_battlefield"})
+        created = collect(ws_a, {"room_joined"})[-1]
+        ws_b.send_json({"type": "join_room", "name": "调停者B", "room_code": created["room_code"]})
+        round_a = collect(ws_a, {"round_start"})[-1]
+        round_b = collect(ws_b, {"round_start"})[-1]
+        assert round_a["team_size"] == 5
+
+        for _ in range(3):
+            ws_a.send_json(make_plan(round_a, team_size=5, bonus_count=6))
+            ws_b.send_json(make_plan(round_b, team_size=5, bonus_count=6))
+            messages_a = collect(ws_a, {"round_start", "game_over"})
+            messages_b = collect(ws_b, {"round_start", "game_over"})
+            if messages_a[-1]["type"] == "game_over":
+                break
+            round_a, round_b = messages_a[-1], messages_b[-1]
+
+        ws_a.send_json({"type": "rematch"})
+        ws_b.send_json({"type": "rematch"})
+        new_round = collect(ws_a, {"round_start"})[-1]
+
+        assert new_round["mode"] == "big_battlefield"
+        assert new_round["team_size"] == 5
+        assert new_round["bonus_per_round"] == 6
+
+
+def test_switching_matchmaking_mode_removes_the_old_queue_entry(client: TestClient):
+    """同一个人在队列里换模式时，旧模式的排队会被清掉，不会同时占两个队列。"""
+
+    with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+        assert ws_a.receive_json()["type"] == "hello"
+        assert ws_b.receive_json()["type"] == "hello"
+
+        ws_a.send_json({"type": "join_random", "name": "摇摆A", "mode": "chaos"})
+        assert collect(ws_a, {"matchmaking_waiting"})[-1]["queue_size"] == 1
+
+        # 换成标准模式排队：混沌队列里的自己应该被移除
+        ws_a.send_json({"type": "join_random", "name": "摇摆A", "mode": "standard"})
+        assert collect(ws_a, {"matchmaking_waiting"})[-1]["queue_size"] == 1
+
+        # 这时来个混沌模式玩家：不应该和 A 配对（A 已经不在混沌队列里了）
+        ws_b.send_json({"type": "join_random", "name": "混沌B", "mode": "chaos"})
+        waiting = collect(ws_b, {"matchmaking_waiting"})[-1]
+        assert waiting["queue_size"] == 1
 
 
 def test_prepare_timeout_auto_submits():

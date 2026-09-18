@@ -2,6 +2,30 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)：`主版本.次版本.修订号`。
 
+## [v0.6.1] - 2026-09-19
+
+模式隔离专项：把"串模式"的可能性逐条堵住，并补上回归测试。
+
+### 修复与加固
+
+- **前端偏好与房间模式分离**：原来 `applyModeFromMessage` 会直接改写大厅选择的模式，
+  导致"用房间号加入别人的混沌房之后，自己大厅的选择也变成混沌"。现在分成
+  `lobbyMode`（只影响创建房间/随机匹配）与 `roomMode`（房间说了算）；
+- **`room_joined` 下发房间模式**：等待页现在会显示"本房间模式：混沌模式（标签为本局随机分配）"，
+  加入者不必等到开局才知道自己进了什么模式；
+- `join_room` 不再接受模式参数（即使客户端发了也会忽略），房间模式以创建者为准。
+
+### 测试
+
+- `test_joining_by_room_code_adopts_the_room_mode`：房主开混沌房，加入者带"大战场"偏好进房，
+  双方拿到的都必须是混沌参数（6 张池、3 人、无自爆步兵、随机标签）；
+- `test_rematch_keeps_the_room_mode`：大战场房间打完再来一局，仍是 9 选 5、6 次增益；
+- `test_switching_matchmaking_mode_removes_the_old_queue_entry`：队列里换模式会退出旧队列，
+  不会同时占两个模式；
+- `test_matchmaking_is_isolated_by_mode` / `test_room_carries_mode_parameters` 保留。
+
+测试总数 84 → **87**。
+
 ## [v0.6.0] - 2026-09-19
 
 按路线图补齐两种新模式：**混沌模式**与**大战场模式**，并把模式抽成配置对象。

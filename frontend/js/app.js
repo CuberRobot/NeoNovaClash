@@ -53,7 +53,8 @@
     previousScreen: "screen-lobby",
     overlayActive: false,
     opponentDisconnected: false,
-    modeKey: "standard",
+    lobbyMode: "standard",     // 大厅里选的模式（只影响自己创建房间 / 随机匹配）
+    roomMode: null,            // 当前所在房间的模式（由服务端下发，房间说了算）
     modes: [],
     randomTags: false,
   };
@@ -174,15 +175,14 @@
     state.modes.forEach((mode) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "mode-option" + (mode.key === state.modeKey ? " is-active" : "");
+      button.className = "mode-option" + (mode.key === state.lobbyMode ? " is-active" : "");
       const title = document.createElement("strong");
       title.textContent = mode.name;
       const summary = document.createElement("span");
       summary.textContent = mode.summary;
       button.append(title, summary);
       button.addEventListener("click", () => {
-        state.modeKey = mode.key;
-        state.randomTags = Boolean(mode.random_tags);
+        state.lobbyMode = mode.key;
         try {
           localStorage.setItem(MODE_KEY, mode.key);
         } catch (err) {
@@ -197,7 +197,7 @@
   function restoreMode() {
     try {
       const saved = localStorage.getItem(MODE_KEY);
-      if (saved) state.modeKey = saved;
+      if (saved) state.lobbyMode = saved;
     } catch (err) {
       /* 忽略 */
     }
@@ -636,11 +636,16 @@
 
   function applyModeFromMessage(message) {
     if (!message.mode) return;
-    state.modeKey = message.mode;
+    state.roomMode = message.mode;
     state.randomTags = Boolean(message.random_tags);
     const badge = el("mode-badge");
     badge.textContent = message.mode_name || message.mode;
     badge.classList.remove("hidden");
+    const waitingMode = el("waiting-mode");
+    if (waitingMode) {
+      waitingMode.textContent = `本房间模式：${message.mode_name || message.mode}`
+        + (message.random_tags ? "（标签为本局随机分配）" : "");
+    }
     document.body.dataset.mode = message.mode;
   }
 
@@ -649,9 +654,9 @@
     el("score-display").textContent = state.score.join(" : ");
     el("btn-review").classList.toggle("hidden", !state.lastBattle);
     const badge = el("mode-badge");
-    if (state.modeKey) {
-      const mode = state.modes.find((item) => item.key === state.modeKey);
-      badge.textContent = mode ? mode.name : state.modeKey;
+    if (state.roomMode) {
+      const mode = state.modes.find((item) => item.key === state.roomMode);
+      badge.textContent = mode ? mode.name : state.roomMode;
       badge.classList.remove("hidden");
     }
     renderPool();
@@ -1430,8 +1435,8 @@
       const response = await fetch("/api/rules");
       state.rules = await response.json();
       state.modes = state.rules.modes || [];
-      if (state.modes.length && !state.modes.some((mode) => mode.key === state.modeKey)) {
-        state.modeKey = state.modes[0].key;
+      if (state.modes.length && !state.modes.some((mode) => mode.key === state.lobbyMode)) {
+        state.lobbyMode = state.modes[0].key;
       }
       renderModes();
       renderRules();
@@ -1521,7 +1526,7 @@
       }
       el("lobby-hint").textContent = "";
       rememberInputs();
-      send({ type: "create_room", name: name, mode: state.modeKey });
+      send({ type: "create_room", name: name, mode: state.lobbyMode });
     });
 
     el("btn-random").addEventListener("click", () => {
@@ -1533,7 +1538,7 @@
       }
       el("lobby-hint").textContent = "";
       rememberInputs();
-      send({ type: "join_random", name: name, mode: state.modeKey });
+      send({ type: "join_random", name: name, mode: state.lobbyMode });
     });
 
     el("btn-cancel-match").addEventListener("click", () => send({ type: "cancel_matchmaking" }));

@@ -143,6 +143,10 @@ class Room:
             "round_index": self.round_index,
             "score": self.scores(),
             "players": [p.to_dict() for p in self.players],
+            # 房间的模式一旦定下就不再变化：用房间号加入的玩家也按房主选的模式对局
+            "mode": self.mode.key,
+            "mode_name": self.mode.name,
+            "random_tags": self.mode.random_tags,
         }
 
     def touch(self) -> None:
