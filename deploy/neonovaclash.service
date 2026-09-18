@@ -1,0 +1,36 @@
+# NeoNovaClash 的 systemd 服务单元（宝塔 / 普通 Debian·Ubuntu 通用）
+#
+# 安装：
+#   cp deploy/neonovaclash.service /etc/systemd/system/neonovaclash.service
+#   systemctl daemon-reload && systemctl enable --now neonovaclash
+#
+# 说明：
+# - 用 run.py 启动，监听地址与端口由下面的 NC_HOST / NC_PORT 决定
+#   （uvicorn 命令行不读这两个环境变量，所以不要直接写 uvicorn backend.web.app:app）
+# - 应用只监听 127.0.0.1:8010，由 nginx 反向代理对外提供（见 deploy/nginx.neonovaclash.conf）
+# - 用 www 用户运行（宝塔的默认站点用户），目录属主也要是 www
+# - 房间状态在内存里，所以固定单进程：不要加 --workers
+
+[Unit]
+Description=NeoNovaClash 星陨竞技场（FastAPI + WebSocket）
+After=network.target
+
+[Service]
+Type=simple
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/neonovaclash
+Environment=NC_HOST=127.0.0.1
+Environment=NC_PORT=8010
+Environment=NC_PREPARE_TIMEOUT=60
+Environment=NC_ROOM_TTL=1800
+Environment=NC_MAX_ROOMS=200
+Environment=NC_LOG_LEVEL=info
+ExecStart=/www/wwwroot/neonovaclash/venv/bin/python run.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

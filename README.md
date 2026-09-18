@@ -8,6 +8,8 @@
 > 内容范围：12 名基础角色、9 种标签、6 选 3、4 次增益、三局两胜。
 > 已经跑通的完整链路：`建房 → 对手加入 → 备战（选人/增益/策略）→ 自动战斗回放 → 本局结算 → 下一局 → 整场结算 → 再来一局`。
 
+**在线 demo**：<http://189.24.77.139/>（部署在宝塔面板的 Debian 服务器上，做法见 [docs/宝塔面板部署.md](docs/宝塔面板部署.md)）
+
 ---
 
 ## 1. 快速开始
@@ -71,6 +73,7 @@ backend/                 服务端
     rules.py             角色池、方案校验、阵容构建
     room.py              房间与对局状态机
 frontend/                原生 HTML/CSS/JS 单页应用（无构建步骤）
+deploy/                  部署模板：systemd 服务、nginx 反代、一键更新脚本
 tools/                   开发工具：命令行对战、联机冒烟测试
 tests/                   引擎 / 规则 / 接口 / 联机流程测试
 docs/                    规则、架构、协议、部署、版本管理、路线图
@@ -137,6 +140,10 @@ docker compose up --build -d
 
 # C. 反向代理（nginx + WebSocket 升级头）
 #    参考 docs/部署指南.md 中的 nginx 片段
+
+# D. 宝塔面板 / 云服务器（systemd + nginx）
+#    仓库自带模板：deploy/neonovaclash.service、deploy/nginx.neonovaclash.conf、deploy/update.sh
+#    完整步骤见 docs/宝塔面板部署.md
 ```
 
 服务是无状态的（房间只存在内存里），因此**水平扩容时必须开启会话粘滞（sticky session）**，
@@ -167,6 +174,7 @@ docker compose up --build -d
 | [docs/架构设计.md](docs/架构设计.md) | 分层设计、模块职责、数据流、扩展点 |
 | [docs/通信协议.md](docs/通信协议.md) | HTTP 接口与 WebSocket 消息定义 |
 | [docs/部署指南.md](docs/部署指南.md) | venv / Docker / 反向代理 / 常见问题 |
+| [docs/宝塔面板部署.md](docs/宝塔面板部署.md) | 宝塔面板 + systemd + nginx 反代的完整线上部署记录 |
 | [docs/开发流程与版本管理.md](docs/开发流程与版本管理.md) | 分支模型、提交规范、测试门禁、回滚流程 |
 | [docs/开发路线图.md](docs/开发路线图.md) | 后续版本要做什么、优先级与验收标准 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |

@@ -39,3 +39,16 @@
 - 本轮只实现标准模式；8 名扩展角色、吸血/反弹/斩杀、混沌模式与大战场模式列入路线图。
 
 [v0.1.0]: https://github.com/CuberRobot/NeoNovaClash/releases/tag/v0.1.0
+
+## [未发布]
+
+### 新增
+
+- **部署模板（`deploy/`）**：systemd 服务单元、nginx 反向代理（含 WebSocket 升级头）、一键更新脚本；
+- **文档**：`docs/宝塔面板部署.md`，记录宝塔面板 + systemd + nginx 的完整部署与验收流程（不含任何凭据）；
+- **在线 demo**：部署在宝塔面板服务器上，`http://189.24.77.139/` 可直接两人对战。
+
+### 修复
+
+- 部署文档明确指出必须用 `python run.py` 启动（uvicorn 命令行不读取 `NC_HOST`/`NC_PORT`，
+  会默认监听 8000，导致 nginx 反代 502）。
