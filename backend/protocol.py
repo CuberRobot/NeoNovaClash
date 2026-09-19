@@ -115,6 +115,13 @@ class ReplayDoneMessage(BaseModel):
     type: Literal["replay_done"]
 
 
+class PickCardMessage(BaseModel):
+    """补卡：从候选的 3 张里选 1 张加入本场角色池。"""
+
+    type: Literal["pick_card"]
+    char_id: int
+
+
 class LeaveRoomMessage(BaseModel):
     type: Literal["leave_room"]
 
@@ -131,6 +138,7 @@ INBOUND_TYPES = {
     "reconnect": ReconnectMessage,
     "submit_plan": SubmitPlanMessage,
     "replay_done": ReplayDoneMessage,
+    "pick_card": PickCardMessage,
     "rematch": RematchMessage,
     "leave_room": LeaveRoomMessage,
     "ping": PingMessage,
@@ -144,6 +152,7 @@ InboundMessage = (
     | ReconnectMessage
     | SubmitPlanMessage
     | ReplayDoneMessage
+    | PickCardMessage
     | RematchMessage
     | LeaveRoomMessage
     | PingMessage

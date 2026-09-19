@@ -254,6 +254,7 @@
       badge.classList.remove("hidden");
     }
     renderHand();
+    renderOffer();
     renderSlots();
     renderStrategy();
     renderTokens();
@@ -287,6 +288,12 @@
   function renderHand() {
     const container = el("hand");
     if (!container) return;
+    const counter = el("pool-count");
+    if (counter) {
+      counter.textContent = `${state.pool.length} 张 · ${
+        state.pool.length > state.teamSize ? `${state.pool.length} 选 ${state.teamSize}` : "拖卡牌上阵"
+      }`;
+    }
     container.innerHTML = "";
     state.pool.forEach((character) => {
       const order = state.selection.indexOf(character.id);
@@ -347,6 +354,79 @@
       });
       container.appendChild(node);
     });
+  }
+
+  /** 补卡：第二局起每局发 3 张候选，选 1 张进池（7 选 3 → 8 选 3）。 */
+  function renderOffer() {
+    const panel = el("offer-panel");
+    const box = el("offer-cards");
+    if (!panel || !box) return;
+    const cards = state.candidates || [];
+    if (!cards.length) {
+      panel.classList.add("hidden");
+      box.innerHTML = "";
+      return;
+    }
+    panel.classList.remove("hidden");
+    el("offer-hint").textContent =
+      `从 ${cards.length} 张里选 1 张加入角色池（本局 ${state.pool.length + 1} 选 ${state.teamSize}）` +
+      "，不选的话开始战斗时会随机补一张";
+    box.innerHTML = "";
+    cards.forEach((card) => {
+      const node = document.createElement("button");
+      node.type = "button";
+      node.className = "offer-card";
+      node.dataset.charId = String(card.id);
+
+      const piece = NC.pieceImage(card.id, card.name, "offer-piece");
+      const name = document.createElement("strong");
+      name.textContent = card.name;
+      const stats = document.createElement("span");
+      stats.className = "hand-stats";
+      stats.textContent = `ATK ${card.atk} · HP ${card.hp} · 先手 ${card.initiative}`;
+      node.append(piece, name, stats);
+
+      const tagRow = document.createElement("span");
+      tagRow.className = "hand-tags";
+      (card.tags || []).forEach((tag, index) => {
+        if (!tag || tag === "none") return;
+        const icon = document.createElement("img");
+        icon.src = NC.tagIconUrl(tag);
+        icon.alt = (card.tag_names || [])[index] || tag;
+        icon.title = icon.alt;
+        tagRow.appendChild(icon);
+      });
+      if ((card.tags || []).length) node.appendChild(tagRow);
+      if (card.place_first) {
+        const warn = document.createElement("span");
+        warn.className = "hand-warn";
+        warn.textContent = "只能放第 1 位";
+        node.appendChild(warn);
+      }
+      node.addEventListener("click", () => pickCard(card.id));
+      box.appendChild(node);
+    });
+  }
+
+  function pickCard(charId) {
+    if (!NC.send({ type: "pick_card", char_id: charId })) return;
+    NC.audio.play("ui-select");
+    el("offer-panel").classList.add("is-picked");
+    toast("已补入角色池");
+  }
+
+  /** 服务端确认补卡后的池子（也可能是在超时/直接提交时系统代选）。 */
+  function onPoolUpdated(message) {
+    state.pool = message.pool || state.pool;
+    state.candidates = [];
+    el("offer-panel").classList.remove("is-picked");
+    const card = message.card;
+    if (message.auto && card) {
+      toast(`没选补卡，系统随机补了「${card.name}」`);
+    } else if (card) {
+      toast(`「${card.name}」已加入角色池（本局 ${state.pool.length} 选 ${state.teamSize}）`);
+    }
+    render();
   }
 
   function renderSlots() {
@@ -765,6 +845,8 @@
     state.roundIndex = message.round_index;
     state.score = message.score || [0, 0];
     state.pool = message.pool || [];
+    state.candidates = message.candidates || [];
+    state.draftSize = message.draft_size || state.candidates.length || 3;
     state.strategies = message.strategies || [];
     state.bonusOptions = message.bonus_options || [];
     state.teamSize = message.team_size || 3;
@@ -794,6 +876,8 @@
   function restoreFromSync(message) {
     state.roundIndex = message.round_index;
     state.pool = message.pool || [];
+    state.candidates = message.candidates || [];
+    state.draftSize = message.draft_size || state.candidates.length || 3;
     state.strategies = message.strategies || [];
     state.bonusOptions = message.bonus_options || [];
     state.teamSize = message.team_size || 3;
@@ -1015,6 +1099,8 @@
     setTimerPending,
     stopTimer,
     onPlanAccepted,
+    onPoolUpdated,
+    pickCard,
     bindDrag,
   };
 })();

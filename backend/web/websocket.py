@@ -80,6 +80,7 @@ async def _handle_raw_message(websocket: WebSocket, hub: GameHub, session: Sessi
         "reconnect": _reconnect,
         "submit_plan": _submit_plan,
         "replay_done": _replay_done,
+        "pick_card": _pick_card,
         "rematch": _rematch,
         "leave_room": _leave_room,
         "ping": _ping,
@@ -221,6 +222,21 @@ async def _replay_done(websocket: WebSocket, hub: GameHub, session: Session, mes
     if room is None:
         return
     outgoings = room.mark_replay_done(session.seat)
+    await hub.dispatch(room, outgoings)
+
+
+async def _pick_card(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    """补卡：把候选里的一张收进角色池。"""
+
+    room = _current_room(hub, session)
+    if room is None:
+        await websocket.send_json(protocol.error("请先创建或加入房间"))
+        return
+    try:
+        outgoings = room.pick_candidate(session.seat, message.char_id)
+    except RoomError as exc:
+        await websocket.send_json(protocol.error(str(exc)))
+        return
     await hub.dispatch(room, outgoings)
 
 

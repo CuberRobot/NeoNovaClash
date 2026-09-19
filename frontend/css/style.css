@@ -606,6 +606,65 @@ select:focus {
   gap: 12px;
 }
 
+/* ---------------------------------------------------------------- 补卡（第二局起） */
+.offer-panel {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: linear-gradient(150deg, rgba(251, 191, 36, 0.14), rgba(124, 92, 255, 0.08));
+}
+
+.offer-panel.is-picked {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.offer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.offer-head strong {
+  color: var(--warn);
+}
+
+.offer-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.offer-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(10, 14, 32, 0.7);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.offer-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.25);
+}
+
+.offer-piece {
+  width: 58px;
+  height: 58px;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
+  pointer-events: none;
+}
+
 .hand-card {
   position: relative;
   display: flex;

@@ -31,11 +31,11 @@ class RoomError(Exception):
 
 
 class Phase(str, Enum):
-    WAITING = "waiting"            # 等待对手加入
-    PREPARING = "preparing"        # 选人 / 增益 / 策略阶段
-    BATTLING = "battling"          # 战斗结算中（瞬态）
-    FINISHED = "finished"          # 整场对局结束，可请求再来一局
-    CLOSED = "closed"              # 房间已关闭
+    WAITING = "waiting"  # 等待对手加入
+    PREPARING = "preparing"  # 选人 / 增益 / 策略阶段
+    BATTLING = "battling"  # 战斗结算中（瞬态）
+    FINISHED = "finished"  # 整场对局结束，可请求再来一局
+    CLOSED = "closed"  # 房间已关闭
 
 
 @dataclass
@@ -59,14 +59,18 @@ class Player:
     submitted: bool = False
     auto_submitted: bool = False
     rematch: bool = False
-    replay_done: bool = False                   # 是否已经看完上一局的回放
+    replay_done: bool = False  # 是否已经看完上一局的回放
+    candidates: list[rules.PoolCard] = field(default_factory=list)  # 补卡候选（3 选 1）
+    picked: bool = False  # 本局是否已经选过补卡
     connected: bool = True
-    reconnect_deadline: float | None = None   # 掉线后允许重连的截止时间（monotonic）
+    reconnect_deadline: float | None = None  # 掉线后允许重连的截止时间（monotonic）
 
     def reset_for_round(self) -> None:
         self.submitted = False
         self.auto_submitted = False
         self.plan = None
+        self.candidates = []
+        self.picked = False
 
     def to_dict(self) -> dict:
         return {
@@ -98,14 +102,15 @@ class Room:
         self.reconnect_grace = reconnect_grace
         self.players: list[Player] = []
         self.phase = Phase.WAITING
-        self.round_index = 0                     # 当前局数，从 1 开始显示
-        self.deadline: float | None = None       # 准备阶段截止时间（monotonic）
+        self.round_index = 0  # 当前局数，从 1 开始显示
+        self.deadline: float | None = None  # 准备阶段截止时间（monotonic）
         self.replay_deadline: float | None = None  # 等客户端看完回放的兜底时间（monotonic）
-        self.awaiting_replay = False             # 本局倒计时是否还没开始（等回放）
+        self.awaiting_replay = False  # 本局倒计时是否还没开始（等回放）
         # 整场三局共用同一份角色池：核心玩法是"猜对手会从这 6 张里选谁、怎么排"
         self.match_pools: list[list[Character]] | None = None
-        self.final_payload: dict | None = None   # 整场结果，供赛后重连恢复结算页
-        self.history: list[dict] = []            # 每局结果摘要
+        self.deck: list[Character] = []  # 没被抽进双方池子的角色，用来发补卡候选
+        self.final_payload: dict | None = None  # 整场结果，供赛后重连恢复结算页
+        self.history: list[dict] = []  # 每局结果摘要
         self.closed_reason = ""
         self.created_at = time.monotonic()
         self.last_activity = self.created_at
@@ -252,6 +257,9 @@ class Room:
             remaining_seconds=remaining_seconds,
             awaiting_replay=self.awaiting_replay,
         )
+        if self.phase is Phase.PREPARING and player.candidates:
+            payload["candidates"] = rules.pool_payload(player.candidates)
+            payload["draft_size"] = C.CARD_DRAFT_SIZE
         # 整场已经结束的房间：把结算结果一起发回去，客户端直接重新弹出胜负面板
         if self.phase is Phase.FINISHED and self.final_payload is not None:
             payload["final"] = self.final_payload
@@ -296,10 +304,17 @@ class Room:
         self.phase = Phase.PREPARING
         if self.match_pools is None:
             self.match_pools = rules.generate_pools(self.rng, self.mode)
-        for player, pool in zip(self.players, self.match_pools, strict=True):
+            used = {card.id for pool in self.match_pools for card in pool}
+            self.deck = [c for c in rules.deck_source(self.mode) if c.id not in used]
+            self.rng.shuffle(self.deck)
+        for player in self.players:
             player.reset_for_round()
-            player.pool = pool
+            # 只在开局发一次底牌：之后每局的补卡都长在 player.pool 上，不能被覆盖回去
+            if not player.pool:
+                player.pool = list(self.match_pools[player.seat])
             player.replay_done = not after_battle
+        # 第二局起发补卡候选：随机 3 张，选 1 张进池（7 选 3 → 8 选 3）
+        self.deal_candidates()
         self.awaiting_replay = after_battle
         if after_battle:
             self.deadline = None
@@ -321,6 +336,8 @@ class Room:
                         deadline_seconds=self.prepare_timeout,
                         awaiting_replay=after_battle,
                         pool=rules.pool_payload(player.pool),
+                        candidates=rules.pool_payload(player.candidates),
+                        draft_size=C.CARD_DRAFT_SIZE,
                         mode=self.mode.key,
                         mode_name=self.mode.name,
                         mode_summary=self.mode.summary,
@@ -355,9 +372,15 @@ class Room:
         player.auto_submitted = False
         self.touch()
 
-        outgoings = [
-            Outgoing(seat, self._msg("plan_accepted", plan=plan.to_dict())),
-        ]
+        outgoings: list[Outgoing] = []
+        if player.candidates and not player.picked:
+            # 直接提交也可以：系统随机补一张，不让玩家因为忘记选卡而少一张牌
+            outgoings.extend(self._apply_pick(player, self.rng.choice(player.candidates), auto=True))
+        outgoings.extend(
+            [
+                Outgoing(seat, self._msg("plan_accepted", plan=plan.to_dict())),
+            ]
+        )
         other = self.opponent_of(seat) if self.is_full else None
         if other is not None:
             outgoings.append(Outgoing(other.seat, self._msg("opponent_ready")))
@@ -386,6 +409,9 @@ class Room:
         for player in self.players:
             if player.submitted:
                 continue
+            if player.candidates and not player.picked:
+                # 超时了还没选补卡：随机补一张，再随机出方案
+                outgoings.extend(self.auto_pick_candidate(player.seat))
             player.plan = rules.random_plan(player.pool, self.rng, self.mode)
             player.submitted = True
             player.auto_submitted = True
@@ -405,6 +431,72 @@ class Room:
         return outgoings
 
     # ------------------------------------------------------------ 回放与倒计时
+    # ------------------------------------------------------------ 补卡
+    def candidates_per_player(self) -> int:
+        """当前还能给每人发几张补卡候选（不够就不发，大战场就是这种情况）。"""
+
+        if self.round_index <= 1:
+            return 0
+        if not self.players:
+            return 0
+        return C.CARD_DRAFT_SIZE if len(self.deck) >= C.CARD_DRAFT_SIZE * len(self.players) else 0
+
+    def deal_candidates(self) -> None:
+        """给双方各发 CARD_DRAFT_SIZE 张补卡候选（候选期间这几张从牌堆里扣住，不会撞车）。"""
+
+        count = self.candidates_per_player()
+        if count <= 0:
+            return
+        for player in self.players:
+            player.candidates = []
+            player.picked = False
+            for _ in range(count):
+                character = self.deck.pop(self.rng.randrange(len(self.deck)))
+                player.candidates.append(rules.make_pool_card(character, self.rng, self.mode))
+
+    def pick_candidate(self, seat: int, char_id: int, *, auto: bool = False) -> list[Outgoing]:
+        """把候选里的一张收进角色池，剩下两张退回牌堆。"""
+
+        if self.phase is not Phase.PREPARING:
+            raise RoomError("当前不是备战阶段")
+        player = self.player_of(seat)
+        if player.picked or not player.candidates:
+            return []
+        chosen = next((card for card in player.candidates if card.id == char_id), None)
+        if chosen is None:
+            raise RoomError("这张牌不在你的补卡候选里")
+        return self._apply_pick(player, chosen, auto=auto)
+
+    def auto_pick_candidate(self, seat: int) -> list[Outgoing]:
+        """没选就随机补一张（超时、或者直接提交方案时）。"""
+
+        player = self.player_of(seat)
+        if player.picked or not player.candidates:
+            return []
+        chosen = self.rng.choice(player.candidates)
+        return self._apply_pick(player, chosen, auto=True)
+
+    def _apply_pick(self, player: Player, chosen: rules.PoolCard, *, auto: bool) -> list[Outgoing]:
+        player.candidates = [card for card in player.candidates if card.id != chosen.id]
+        # 没选中的退回牌堆（牌堆里存的是角色本身，不是带标签的池卡），留给下一局再发
+        self.deck.extend(card.character for card in player.candidates)
+        player.candidates = []
+        player.picked = True
+        player.pool = [*player.pool, chosen]
+        self.touch()
+        return [
+            Outgoing(
+                player.seat,
+                self._msg(
+                    "pool_updated",
+                    round_index=self.round_index,
+                    pool=rules.pool_payload(player.pool),
+                    card=chosen.to_dict(),
+                    auto=auto,
+                ),
+            )
+        ]
+
     def begin_prepare(self) -> list[Outgoing]:
         """正式开始本局的准备倒计时（回放看完或兜底时间到了）。"""
 
@@ -450,9 +542,7 @@ class Room:
         self.awaiting_replay = False
         self.touch()
 
-        teams = [
-            rules.build_team(player.pool, player.plan, player.seat, self.mode) for player in self.players
-        ]
+        teams = [rules.build_team(player.pool, player.plan, player.seat, self.mode) for player in self.players]
         # 开战前的阵容快照：前端用它绘制血条动画，战斗过程会修改 Fighter 对象
         lineups = [[f.snapshot() for f in team] for team in teams]
         strategies = [player.plan.strategy for player in self.players]
@@ -565,7 +655,9 @@ class Room:
             p.score = 0
             p.rematch = False
             p.reset_for_round()
-        self.match_pools = None       # 新的一场对局：重新抽一份整场固定的角色池
+            p.pool = []           # 新的一场：底牌重新发
+        self.match_pools = None  # 新的一场对局：重新抽一份整场固定的角色池
+        self.deck = []
         self.final_payload = None
         self.awaiting_replay = False
         self.replay_deadline = None

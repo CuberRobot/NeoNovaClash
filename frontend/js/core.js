@@ -30,6 +30,8 @@
     score: [0, 0],
     // 备战
     pool: [],
+    candidates: [], // 补卡候选（3 选 1），选完清空
+    draftSize: 3,
     selection: [],
     bonuses: [],
     strategy: { kind: "lowest_hp", tag: null },

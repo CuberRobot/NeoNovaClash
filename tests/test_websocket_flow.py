@@ -468,3 +468,49 @@ def test_rematch_starts_a_brand_new_match(client: TestClient):
         assert new_round_b["round_index"] == 1
         assert [card["id"] for card in new_round_a["pool"]] != []
         assert len(new_round_a["pool"]) == 6
+
+
+def test_card_draft_over_websocket(client: TestClient):
+    """补卡的完整链路：候选下发 → pick_card → pool_updated → 池子从 6 长到 7、8。"""
+
+    with two_players(client) as (ws_a, ws_b):
+        _code, round_a, round_b = start_match(ws_a, ws_b)
+        assert round_a["candidates"] == []          # 第一局没有补卡
+        expected_sizes = [7, 8]
+
+        for index in range(2):
+            ws_a.send_json(make_plan(round_a, team_size=3))
+            ws_b.send_json(make_plan(round_b, team_size=3))
+            messages_a = collect(ws_a, {"round_start", "game_over"})
+            messages_b = collect(ws_b, {"round_start", "game_over"})
+            if messages_a[-1]["type"] == "game_over":
+                return
+
+            round_a, round_b = messages_a[-1], messages_b[-1]
+            assert round_a["draft_size"] == 3
+            assert len(round_a["candidates"]) == 3
+            assert len(round_b["candidates"]) == 3
+
+            # A 手动选一张
+            pick = round_a["candidates"][0]["id"]
+            ws_a.send_json({"type": "pick_card", "char_id": pick})
+            updated = collect(ws_a, {"pool_updated"})[-1]
+            assert updated["auto"] is False
+            assert len(updated["pool"]) == expected_sizes[index]
+            assert pick in [card["id"] for card in updated["pool"]]
+            round_a = {**round_a, "pool": updated["pool"]}
+
+            # B 不选，直接提交 → 系统代选，并告知 auto=True
+            ws_b.send_json(make_plan(round_b, team_size=3))
+            auto = collect(ws_b, {"pool_updated"})[-1]
+            assert auto["auto"] is True
+            assert len(auto["pool"]) == expected_sizes[index]
+            round_b = {**round_b, "pool": auto["pool"]}
+
+            ws_a.send_json(make_plan(round_a, team_size=3))
+            messages_a = collect(ws_a, {"round_start", "game_over"})
+            if messages_a[-1]["type"] == "game_over":
+                return
+            messages_b = collect(ws_b, {"round_start", "game_over"})
+            round_a = messages_a[-1]
+            round_b = messages_b[-1]

@@ -288,6 +288,35 @@ def pool_payload(pool: list[PoolCard]) -> list[dict]:
     return [card.to_dict() for card in pool]
 
 
+def deck_source(mode: modes.ModeConfig | None = None) -> list[Character]:
+    """本模式可用的全部角色。开局抽完双方池子后，剩下的就是补卡的候选牌堆。
+
+    标准模式 20 张里用掉 12 张 → 剩 8 张，正好够两局各发 3 张候选；
+    大战场 9 选 5 用掉 18 张只剩 2 张，不够发牌，因此那个模式不开补卡。
+    """
+
+    mode = mode or modes.get_mode(None)
+    return list(_roster_for(mode))
+
+
+def make_pool_card(
+    character: Character, rng: random.Random, mode: modes.ModeConfig | None = None
+) -> PoolCard:
+    """把一名角色做成池子里的卡（混沌模式下会按模式规则随机分配标签）。"""
+
+    mode = mode or modes.get_mode(None)
+    return _make_cards([character], mode, rng)[0]
+
+
+def deck_candidates(deck: list[Character], rng: random.Random, count: int) -> list[Character]:
+    """从候选牌堆里发出 count 张补卡候选（不修改传入列表，由调用方决定去留）。"""
+
+    if count <= 0 or not deck:
+        return []
+    take = min(count, len(deck))
+    return rng.sample(deck, take)
+
+
 # ---------------------------------------------------------------- 方案校验
 def validate_plan(pool: list[PoolCard], plan: Plan, mode: modes.ModeConfig | None = None) -> None:
     """校验一份出战方案，不合法时抛出 RuleError（消息可直接展示给玩家）。"""

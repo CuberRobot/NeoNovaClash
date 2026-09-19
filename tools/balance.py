@@ -18,6 +18,7 @@ import argparse
 import random
 from collections import defaultdict
 
+from backend.core import constants as C
 from backend.core import rules
 from backend.core import tags as taglib
 from backend.core.characters import Character, roster
@@ -90,6 +91,137 @@ def rate(wins: int, total: int) -> float:
     return (wins / total) if total else 0.0
 
 
+class MatchStats:
+    """整场（三局两胜）视角的统计：角色池固定、可选补卡之后，先手优势会不会累积。"""
+
+    def __init__(self) -> None:
+        self.matches = 0
+        self.match_wins = [0, 0]
+        self.sweeps = [0, 0]
+        self.rounds_total = 0
+        self.first_rounds = 0
+        self.first_round_wins = 0
+        self.first_counts = [0, 0]        # 各座位在整场里先手的局数分布
+        self.all_first_matches = [0, 0]   # 整场每一局都先手的场次
+        self.all_first_wins = 0
+        # 池子先手值差（A 的最低 3 张之和 - B 的）→ 整场胜负，用来判断"固定池会不会一路压到底"
+        self.init_buckets: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+        self.rounds = Stats()             # 复用逐局的角色 / 标签统计
+
+
+def run_matches(matches: int, seed: int | None, growth: bool) -> MatchStats:
+    """模拟整场对局：角色池整场固定；growth=True 时第二局起每局补一张（7 选 3 → 8 选 3）。"""
+
+    rng = random.Random(seed)
+    stats = MatchStats()
+    for _ in range(matches):
+        pools = list(rules.generate_pools(rng))
+        used = {card.id for pool in pools for card in pool}
+        deck = [character for character in roster() if character.id not in used]
+        pool_gap = min_pool_initiative(pools[0]) - min_pool_initiative(pools[1])
+        scores = [0, 0]
+        first_counts = [0, 0]
+        played = 0
+
+        while max(scores) < C.ROUNDS_TO_WIN and played < 12:
+            played += 1
+            plans = [rules.random_plan(pool, rng) for pool in pools]
+            teams = [rules.build_team(pools[seat], plans[seat], seat) for seat in (0, 1)]
+            result = rules.simulate(teams, [plan.strategy for plan in plans], seed=rng.randrange(2**31))
+            stats.rounds.record(pools, teams, result)
+            first_counts[result.first_team] += 1
+            stats.first_rounds += 1
+            if result.winner_team == result.first_team:
+                stats.first_round_wins += 1
+            if result.winner_team is None:
+                pools = _draft(pools, deck, rng, growth)
+                continue
+            scores[result.winner_team] += 1
+            pools = _draft(pools, deck, rng, growth)
+
+        winner = 0 if scores[0] > scores[1] else 1
+        stats.matches += 1
+        bucket = (
+            "A 池子能更低先手（-6 以下）"
+            if pool_gap <= -6
+            else "A 略低（-5 ~ -1）"
+            if pool_gap < 0
+            else "基本持平（0）"
+            if pool_gap == 0
+            else "B 略低（+1 ~ +5）"
+            if pool_gap <= 5
+            else "B 池子能更低先手（+6 以上）"
+        )
+        stats.init_buckets[bucket][0] += 1
+        stats.init_buckets[bucket][1] += 1 if winner == 0 else 0
+        stats.rounds_total += played
+        stats.match_wins[winner] += 1
+        if scores[winner] == C.ROUNDS_TO_WIN and scores[1 - winner] == 0:
+            stats.sweeps[winner] += 1
+        for seat in (0, 1):
+            if first_counts[seat] == played:
+                stats.all_first_matches[seat] += 1
+                if winner == seat:
+                    stats.all_first_wins += 1
+    return stats
+
+
+def _draft(pools, deck, rng, growth: bool):
+    """第二局起给双方各发 3 张候选、各补 1 张进池（与房间层同一套规则）。"""
+
+    if not growth or len(deck) < 3 * len(pools):
+        return pools
+    grown = list(pools)
+    for seat in range(len(pools)):
+        candidates = rng.sample(deck, 3)
+        for character in candidates:
+            deck.remove(character)
+        pick = rng.choice(candidates)
+        grown[seat] = [*grown[seat], rules.make_pool_card(pick, rng)]
+        deck.extend(character for character in candidates if character is not pick)
+    return grown
+
+
+def min_pool_initiative(pool) -> int:
+    """池子里最低的 3 张先手值之和：这名玩家"最容易抢到先手"的程度。"""
+
+    values = sorted(card.initiative for card in pool)
+    return sum(values[:3])
+
+
+def report_matches(stats: MatchStats, growth: bool) -> None:
+    draft = "＋每局补 1 张（7 选 3 → 8 选 3）" if growth else "，不补卡"
+    print(f"对局形态：整场三局两胜，角色池整场固定{draft}")
+    print(f"整场场次：{stats.matches}（平均 {stats.rounds_total / max(stats.matches, 1):.2f} 局分出胜负）")
+    print(
+        f"A 队拿下整场 {rate(stats.match_wins[0], stats.matches):.1%} / "
+        f"B 队 {rate(stats.match_wins[1], stats.matches):.1%}"
+        f"  2:0 直落比例 {rate(stats.sweeps[0] + stats.sweeps[1], stats.matches):.1%}"
+    )
+    print(
+        f"逐局先手方胜率 {rate(stats.first_round_wins, stats.first_rounds):.1%}"
+        f"  ← 对照：旧版每局重抽池子时约 55%"
+    )
+    same_first = stats.all_first_matches[0] + stats.all_first_matches[1]
+    print(
+        f"整场每局都先手的场次 {same_first / max(stats.matches, 1):.1%}"
+        f"（其中先手方拿下整场 {rate(stats.all_first_wins, same_first):.1%}）"
+    )
+    print()
+    print(f"{'池子先手值（最低 3 张之和）':<26} {'场次':>6} {'A 拿下整场':>10}")
+    for bucket in (
+        "A 池子能更低先手（-6 以下）",
+        "A 略低（-5 ~ -1）",
+        "基本持平（0）",
+        "B 略低（+1 ~ +5）",
+        "B 池子能更低先手（+6 以上）",
+    ):
+        total, wins = stats.init_buckets[bucket]
+        print(f"{bucket:<26} {total:>6} {rate(wins, total):>9.1%}")
+    print()
+    report(stats.rounds, independent=False)
+
+
 def report(stats: Stats, independent: bool) -> None:
     print(f"抽池机制：{'各自独立抽 6 张（旧）' if independent else '20 张共用抽 12 张后对半切（新）'}")
     print(f"对局场次：{stats.battles}")
@@ -153,7 +285,14 @@ def main() -> None:
         default="split",
         help="抽池机制：split=共用抽池后对半切（默认），independent=各自独立抽池",
     )
+    parser.add_argument("--matches", type=int, default=0, help="模拟整场对局的场次（三局两胜）")
+    parser.add_argument("--no-growth", action="store_true", help="整场模拟里关闭补卡，用于对照")
     args = parser.parse_args()
+
+    if args.matches:
+        stats = run_matches(args.matches, args.seed, growth=not args.no_growth)
+        report_matches(stats, growth=not args.no_growth)
+        return
 
     stats = run(args.battles, args.seed, independent=args.draw == "independent")
     report(stats, independent=args.draw == "independent")

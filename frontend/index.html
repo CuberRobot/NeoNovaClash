@@ -46,7 +46,7 @@
           <ul class="facts">
             <li><b>6 选 3</b><span>整场固定角色池</span></li>
             <li><b>4 次增益</b><span>攻击 +2 / 生命 +4</span></li>
-            <li><b>三局两胜</b><span>同一池子打三局</span></li>
+            <li><b>每局补 1 张</b><span>7 选 3 → 8 选 3</span></li>
           </ul>
         </div>
 
@@ -127,8 +127,15 @@
           <section class="panel hand-panel">
             <header class="panel-head">
               <h2>角色池</h2>
-              <span class="hint">拖卡牌上阵 · 拖回手牌下阵 · 按 1~9 也能上阵/收回</span>
+              <span class="hint" id="pool-count">6 张 · 拖卡牌上阵，拖回手牌下阵</span>
             </header>
+            <section id="offer-panel" class="offer-panel hidden">
+              <header class="offer-head">
+                <strong>补卡</strong>
+                <span class="hint" id="offer-hint"></span>
+              </header>
+              <div id="offer-cards" class="offer-cards"></div>
+            </section>
             <div id="hand" class="hand"></div>
             <p class="hint">
               卡牌上角数字是出击位序；「只能放第 1 位」的角色会自动排到最前面。

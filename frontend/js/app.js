@@ -200,6 +200,10 @@
       case "plan_accepted":
         NC.prepare.onPlanAccepted(message, false);
         break;
+      case "pool_updated":
+        // 补卡生效：角色池多一张，后面就能 7 选 3 / 8 选 3
+        NC.prepare.onPoolUpdated(message);
+        break;
       case "plan_auto_submitted":
         NC.prepare.onPlanAccepted(message, true);
         break;
@@ -628,7 +632,10 @@
       <h3>一局怎么打</h3>
       <ul>
         <li><b>整场三局共用一份角色池</b>：开局双方各自拿到 ${c.pool_size} 名随机角色，这三局里池子不变，每局从同一份池子里选出 ${c.team_size} 名出战。</li>
-        <li>所以真正的胜负手是<b>猜对手会怎么用他手上那 6 张牌</b>：谁上阵、排在哪一位、增益给了谁、优先打谁。</li>
+        <li>所以真正的胜负手是<b>猜对手会怎么用他手上的牌</b>：谁上阵、排在哪一位、增益给了谁、优先打谁。</li>
+        <li><b>补卡</b>：第二局起每局发 3 张候选（从整场没被抽到的角色里随机），选 1 张加入角色池——
+        第二局是 7 选 ${c.team_size}，第三局是 8 选 ${c.team_size}。没选就由系统随机补一张，
+        所以池子只会变大、不会变小。</li>
         <li>选择顺序就是出击顺序，战斗时按 A1 → B1 → A2 → B2 → A3 → B3 依次行动。</li>
         <li>每人有 ${c.bonus_per_round} 次增益机会：攻击 +${c.bonus_atk} 或生命 +${c.bonus_hp}，单个出击位最多 ${c.max_bonus_per_fighter} 次。</li>
         <li>双方提交后自动演算，先赢下 ${c.rounds_to_win} 局的一方获得整场胜利。</li>
@@ -656,6 +663,7 @@
       <h3>操作方式</h3>
       <ul>
         <li>备战页默认是<b>卡牌视图</b>：把手牌拖到出击位即上阵，拖动可换位，拖回手牌即下阵。手机上按住卡牌约 0.15 秒再拖动。</li>
+        <li>补卡面板出现时，点其中一张就把它收进角色池，手牌会立刻从 6 张变成 7、8 张。</li>
         <li>不习惯拖放可以点右上角「切到按钮视图」：点角色依次落位，再点两个出击位交换。</li>
         <li>键盘：<b>1~9</b> 把对应手牌上阵/收回，<b>Backspace</b> 撤销，<b>Enter</b> 提交；战斗页 <b>空格</b> 暂停，<b>→</b> 跳到下一个关键节点。</li>
       </ul>

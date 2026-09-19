@@ -97,3 +97,123 @@ def test_state_sync_of_finished_room_carries_final_result():
     assert payload["phase"] == "finished"
     assert payload["final"]["score"] == [2, 1]
     assert payload["final"]["winner_seat"] == 0
+
+
+# ---------------------------------------------------------------- 补卡
+def test_first_round_has_no_card_draft():
+    room = make_room()
+    assert [len(player.pool) for player in room.players] == [6, 6]
+    assert all(player.candidates == [] for player in room.players)
+    assert room.deck                       # 牌堆已经备好（20 - 12 = 8）
+    assert len(room.deck) == 8
+
+
+def test_card_draft_grows_pool_by_one_each_round():
+    room = make_room()
+    room.start_round(after_battle=True)     # 第二局
+
+    assert [len(player.candidates) for player in room.players] == [3, 3]
+    assert [len(player.pool) for player in room.players] == [6, 6]
+
+    pick_one_each(room)
+    assert [len(player.pool) for player in room.players] == [7, 7]   # 第二局 7 选 3
+    assert all(player.candidates == [] for player in room.players)
+
+    room.start_round(after_battle=True)     # 第三局
+    assert [len(player.candidates) for player in room.players] == [3, 3]
+    assert [len(player.pool) for player in room.players] == [7, 7]
+
+    pick_one_each(room)
+    assert [len(player.pool) for player in room.players] == [8, 8]   # 第三局 8 选 3
+
+
+def test_card_draft_never_duplicates_between_players():
+    room = make_room()
+    for _ in range(2):                      # 第二、三局各选一次
+        room.start_round(after_battle=True)
+        offered = [card.id for player in room.players for card in player.candidates]
+        assert len(offered) == len(set(offered))          # 同一局两人不会看到同一张候选
+        pick_one_each(room)
+
+    ids = [[card.id for card in player.pool] for player in room.players]
+    assert len(set(ids[0]) & set(ids[1])) == 0            # 补完卡仍然不重名
+    assert [len(pool) for pool in ids] == [8, 8]
+
+
+def test_rejected_cards_go_back_to_the_deck():
+    room = make_room()
+    room.start_round(after_battle=True)
+    before = len(room.deck)
+    offered = list(room.players[0].candidates)
+    room.pick_candidate(0, offered[0].id)
+    # 送出去一张，退回来两张
+    assert len(room.deck) == before + 2
+
+
+def test_submitting_without_picking_auto_drafts():
+    room = make_room()
+    room.start_round(after_battle=True)
+    player = room.players[0]
+    plan = _plan_for(player)
+
+    outgoings = room.submit(0, plan)
+    kinds = [o.payload["type"] for o in outgoings if o.seat == 0]
+    assert "pool_updated" in kinds            # 系统代选了一张
+    assert len(player.pool) == 7
+    assert player.picked is True
+
+
+def test_timeout_auto_drafts_before_auto_submit():
+    room = make_room(prepare_timeout=1)
+    room.start_round(after_battle=True)
+    room.players[0].replay_done = True
+    room.players[1].replay_done = True
+    room.begin_prepare()
+
+    outgoings = room.tick(now=room.deadline + 0.1)
+    kinds = [o.payload["type"] for o in outgoings]
+    assert "pool_updated" in kinds
+    assert "battle_report" in kinds
+    assert all(len(player.pool) == 7 for player in room.players)
+
+
+def test_big_battlefield_has_no_card_draft():
+    """大战场 9 选 5 用掉 18 张，只剩 2 张，不够发补卡候选。"""
+
+    from backend.core import modes
+
+    room = Room("BIG", seed=1, mode=modes.get_mode("big_battlefield"))
+    room.join("占位甲")
+    room.join("占位乙")
+    room.start_round(after_battle=True)
+
+    assert all(player.candidates == [] for player in room.players)
+    room.start_round(after_battle=True)
+    assert all(player.candidates == [] for player in room.players)
+
+
+def _plan_for(player):
+    """给这名玩家手里 7~8 张牌拼一份合法方案（自爆步兵自动放首位）。"""
+
+    from backend.core.models import Bonus, Plan, Strategy
+
+    pool = player.pool
+    selection = [card.id for card in pool[: 3]]
+    first = next((card.id for card in pool if getattr(card, "place_first", False)), None)
+    if first is not None and first not in selection:
+        selection = [first, *selection[:2]]
+    bonuses = tuple(
+        Bonus(slot=(index % 3) + 1, kind="atk" if index % 2 == 0 else "hp") for index in range(4)
+    )
+    return Plan(
+        selection=selection,
+        bonuses=bonuses,
+        strategy=Strategy(kind="lowest_hp"),
+    )
+
+
+def pick_one_each(room: Room) -> None:
+    """双方各从自己的 3 张候选里选第 1 张。"""
+
+    for player in room.players:
+        room.pick_candidate(player.seat, player.candidates[0].id)

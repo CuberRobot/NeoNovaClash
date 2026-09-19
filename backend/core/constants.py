@@ -31,6 +31,8 @@ ROUNDS_TO_WIN = 2
 PREPARE_TIMEOUT_SECONDS = 90
 # 上一局回放播完后才开始下一局的倒计时；这是"等客户端确认看完"的兜底上限（秒）
 REPLAY_GRACE_SECONDS = 30
+# 补卡：第二局起每局发 3 张候选、选 1 张进池（7 选 3 → 8 选 3）
+CARD_DRAFT_SIZE = 3
 # 掉线后的重连宽限时间（秒）：期间房间保持存活，对手会看到「等待重连」
 RECONNECT_GRACE_SECONDS = 90
 # 随机匹配队列上限
