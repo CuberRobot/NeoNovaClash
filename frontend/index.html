@@ -29,6 +29,7 @@
       </div>
       <div class="topbar-actions">
         <span id="conn-status" class="pill pill-warn">连接中…</span>
+        <a class="ghost" href="/about" target="_blank" rel="noreferrer">介绍</a>
         <button id="btn-sound" class="ghost" type="button">🔊 音效</button>
         <button id="btn-rules" class="ghost" type="button">规则</button>
       </div>
@@ -236,7 +237,10 @@
         <div class="panel rules-panel">
           <header class="panel-head">
             <h2>规则说明</h2>
-            <button id="btn-rules-back" class="ghost small" type="button">返回</button>
+            <div class="panel-actions">
+              <a class="ghost small" href="/rules" target="_blank" rel="noreferrer">独立规则页</a>
+              <button id="btn-rules-back" class="ghost small" type="button">返回</button>
+            </div>
           </header>
           <div id="rules-content" class="rules-content"><p class="hint">正在加载规则…</p></div>
         </div>

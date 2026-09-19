@@ -35,6 +35,34 @@ def test_frontend_reponses_carry_basic_security_headers(client: TestClient):
     assert response.headers["X-Frame-Options"] == "DENY"
 
 
+@pytest.mark.parametrize(
+    ("path", "must_contain"),
+    [
+        ("/", "星陨竞技场"),
+        ("/about", "核心乐趣"),
+        ("/rules", "标签效果"),
+    ],
+)
+def test_pages_are_served_with_asset_version(client: TestClient, path: str, must_contain: str):
+    """主页面、介绍页、规则页都要能打开，并且把 {{ASSET_VERSION}} 换成真实指纹。"""
+
+    response = client.get(path)
+
+    assert response.status_code == 200
+    html = response.text
+    assert must_contain in html
+    assert "{{ASSET_VERSION}}" not in html          # 模板占位符必须被替换
+    assert "?v=" in html                            # 静态资源带版本号，不吃缓存
+    assert response.headers["content-type"].startswith("text/html")
+
+
+def test_about_page_links_to_rules_and_repo(client: TestClient):
+    html = client.get("/about").text
+
+    assert 'href="/rules"' in html
+    assert "github.com/CuberRobot/NeoNovaClash" in html
+
+
 def test_static_assets_are_revalidated(client: TestClient):
     """发版后浏览器与 CDN 必须回源校验，不能继续用旧的 JS/CSS。"""
 

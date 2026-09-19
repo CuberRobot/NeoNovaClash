@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>规则说明 · 星陨竞技场 NeoNovaClash</title>
+    <meta
+      name="description"
+      content="星陨竞技场（NeoNovaClash）完整规则：角色池与补卡、增益与策略、先手与出手顺序、12 种标签效果、20 名角色数值与裁定说明。"
+    />
+    <link rel="stylesheet" href="/static/css/pages.css?v={{ASSET_VERSION}}" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpolygon points='32,4 58,20 58,44 32,60 6,44 6,20' fill='%237c5cff' opacity='0.85'/%3E%3Cpolygon points='32,14 48,24 48,40 32,50 16,40 16,24' fill='%2367e8f9'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">NC</span>
+        <span>
+          <strong>星陨竞技场</strong>
+          <small>NeoNovaClash · 规则说明</small>
+        </span>
+      </a>
+      <nav class="topnav">
+        <a href="/about">项目介绍</a>
+        <a href="https://github.com/CuberRobot/NeoNovaClash" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="is-primary" href="/">开始对局</a>
+      </nav>
+    </header>
+
+    <main class="wrap">
+      <section class="hero" style="padding-bottom: 8px">
+        <p class="eyebrow">Rules</p>
+        <h1>规则说明</h1>
+        <p class="lead">
+          本页所有数值都直接来自服务端的 <code>/api/rules</code>——也就是游戏真正在跑的那份数据，
+          不会出现"文档写着 6 选 3、游戏里却是别的"这种情况。
+        </p>
+        <p class="muted" id="rules-status">正在加载规则数据…</p>
+      </section>
+
+      <div class="rules-layout">
+        <nav class="toc">
+          <a href="#goal">目标与胜负</a>
+          <a href="#loop">一局流程</a>
+          <a href="#pool">角色池与补卡</a>
+          <a href="#prepare">增益与策略</a>
+          <a href="#order">先手与出手顺序</a>
+          <a href="#resolve">一次攻击的结算顺序</a>
+          <a href="#tags">标签效果</a>
+          <a href="#characters">角色一览</a>
+          <a href="#modes">游戏模式</a>
+          <a href="#faq">常见问题</a>
+        </nav>
+
+        <div>
+          <section id="goal" class="panel">
+            <h2>目标与胜负</h2>
+            <ul class="plain">
+              <li>两人对战，各自拿到 <b><span id="pool-size">6</span> 名星灵</b>，从中选出 <b><span id="team-size">3</span> 名</b>出战。</li>
+              <li>每局有 <b><span id="bonus-per-round">4</span> 次增益</b>（攻击 +<span id="bonus-atk">2</span> / 生命 +<span id="bonus-hp">4</span>），单个出击位最多 <span id="max-bonus">2</span> 次。</li>
+              <li><b>三局两胜</b>（先赢 <span id="rounds-to-win">2</span> 局者胜）。</li>
+              <li>单局最多 <span id="max-rounds">50</span> 回合，超过后按剩余总血量判定；双方同时全灭则该局重开、比分不变。</li>
+              <li>备战限时 <b><span id="prepare-timeout">90</span> 秒</b>，超时由系统随机提交一份合法方案。</li>
+            </ul>
+            <div class="callout">
+              关键：<b>整场三局共用同一份角色池</b>。对手手上始终是那几张牌，
+              所以"猜他怎么用"才真正有意义——这是本作的核心，不是随机开箱。
+            </div>
+          </section>
+
+          <section id="loop" class="panel">
+            <h2>一局流程</h2>
+            <ol class="steps">
+              <li><b>抽池</b>：从 20 张卡池里共用抽 12 张，再对半切成两个 6 张池；双方不重名，且两边强度接近。</li>
+              <li><b>补卡</b>（第二局起）：双方各拿 3 张候选（来自整场没被抽到的角色），选 1 张进池。</li>
+              <li><b>备战</b>：选出 3 名、排好出击顺序、分配增益、选择攻击策略。</li>
+              <li><b>提交</b>：双方提交（或超时）后立刻演算，战斗逐条播放。</li>
+              <li><b>结算</b>：分出本局胜负与比分；未分出整场胜负就进入下一局。</li>
+              <li><b>整场结束</b>：先赢 2 局者获胜，可以一键「再来一局」重开一场（重新抽池）。</li>
+            </ol>
+            <p class="muted" style="margin-bottom: 0">
+              下一局的倒计时在<b>上一局回放播完</b>（或你点「跳到结果」）之后才开始，看演算不吃准备时间。
+            </p>
+          </section>
+
+          <section id="pool" class="panel">
+            <h2>角色池与补卡</h2>
+            <ul class="plain">
+              <li><b>整场固定</b>：底牌只在开局抽一次，三局不变；只有「再来一局」开新对局才重抽。</li>
+              <li><b>双方不重名</b>：12 张共用池对半切，你有的角色对手一定没有。</li>
+              <li><b>强度接近</b>：切分时枚举所有对半分法，挑先手值、总生命、总攻击差距最小的一种。</li>
+              <li>
+                <b>补卡</b>：第二局起每局发 <b>3 张候选</b>（从整场未使用的角色里随机、双方不重叠），
+                <b>选 1 张</b>加入角色池——第二局 <b>7 选 3</b>、第三局 <b>8 选 3</b>；
+                没选的话开战时由系统随机补一张。池子只增不减。
+              </li>
+              <li>大战场模式（9 选 5）用掉 18 张、剩余角色不足以发牌，因此<b>该模式没有补卡</b>。</li>
+            </ul>
+          </section>
+
+          <section id="prepare" class="panel">
+            <h2>增益与策略</h2>
+            <ul class="plain">
+              <li>
+                增益共 <span id="bonus-per-round-copy">4</span> 次：<b>攻击 +2</b> 或 <b>生命 +4</b>，
+                先点筹码再点出击位；同一个出击位最多吃 <span id="max-bonus-copy">2</span> 次。
+              </li>
+              <li>「只能放第 1 位」的角色（自爆步兵）会自动排到首位，不参与换位。</li>
+              <li>攻击策略决定你的单位优先打谁：</li>
+            </ul>
+            <ol id="strategy-list" class="steps"></ol>
+          </section>
+
+          <section id="order" class="panel">
+            <h2>先手与出手顺序</h2>
+            <ul class="plain">
+              <li>双方出战角色的<b>先手值总和较低的一方先手</b>；相同则随机决定。</li>
+              <li><b>位次优先、同位次先手方先动</b>：双方都按第 1 位 → 第 2 位 → 第 3 位出手，每一对位次里先手方先打。</li>
+            </ul>
+            <table>
+              <thead>
+                <tr><th>先手方</th><th>第 1 位</th><th>第 2 位</th><th>第 3 位</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>A 队</strong></td>
+                  <td>A1 → B1</td>
+                  <td>A2 → B2</td>
+                  <td>A3 → B3</td>
+                </tr>
+                <tr>
+                  <td><strong>B 队</strong></td>
+                  <td>B1 → A1</td>
+                  <td>B2 → A2</td>
+                  <td>B3 → A3</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="muted">
+              所以"先手"不是让你一次打完，而是让你在每一个位次上都抢先一步——第 1 位先动往往能先手秒掉对方的脆皮。
+            </p>
+          </section>
+
+          <section id="resolve" class="panel">
+            <h2>一次攻击的结算顺序</h2>
+            <ol class="steps">
+              <li>攻击方修正（狂暴：自身生命 ≤14 时伤害 ×1.4）</li>
+              <li>自爆判定（目标最大生命 ≤30 直接击杀；自爆伤害不参与护盾分摊与反弹）</li>
+              <li>护盾分担（护盾部署者为队友承担 50%，共 4 次）</li>
+              <li>重装盔甲减伤（单次 ≥7 点伤害按 60% 结算）</li>
+              <li>扣血 → 死亡判定 → 复活判定（死灵法师）</li>
+              <li>命中效果（中毒叠层、箭矢穿透追击）</li>
+              <li>受击后效果（吸血回复、反弹伤害、斩杀在出手前就已判定）</li>
+            </ol>
+            <p class="muted">
+              每轮开始先统一结算中毒（每层 2 点，直接扣血、不经过护盾与减伤），再按上面的顺序逐位出手。
+            </p>
+          </section>
+
+          <section id="tags" class="panel">
+            <h2>标签效果</h2>
+            <p class="muted">标准模式下标签跟着角色走；混沌模式下标签每局随机分配（每名玩家 4 个、单角色最多 2 个）。</p>
+            <table>
+              <thead>
+                <tr><th>标签</th><th>效果</th></tr>
+              </thead>
+              <tbody id="tag-table"></tbody>
+            </table>
+          </section>
+
+          <section id="characters" class="panel">
+            <h2>角色一览</h2>
+            <p class="muted">共 20 名角色，覆盖均衡、输出、前排、辅助与特殊定位。</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>角色</th><th>定位</th><th>ATK</th><th>HP</th><th>先手</th><th>标签</th><th>星域</th>
+                </tr>
+              </thead>
+              <tbody id="character-table"></tbody>
+            </table>
+          </section>
+
+          <section id="modes" class="panel">
+            <h2>游戏模式</h2>
+            <table>
+              <thead>
+                <tr><th>模式</th><th>一句话</th><th>说明</th></tr>
+              </thead>
+              <tbody id="mode-table"></tbody>
+            </table>
+          </section>
+
+          <section id="faq" class="panel">
+            <h2>常见问题</h2>
+            <h3>为什么我打不到对方的脆皮？</h3>
+            <p class="muted">
+              攻击目标由<b>你选的策略</b>决定：优先打血量最低 / 攻击最高 / 指定标签。
+              想定点清除，就选「优先攻击指定标签」并指定对方的关键标签。
+            </p>
+            <h3>为什么我的护盾没生效？</h3>
+            <p class="muted">
+              护盾是<b>队友受伤时分担 50%</b>，不是给自己加盾，也不分摊自爆伤害；
+              另外诅咒巫师开场会剥夺敌方一名角色的全部标签——包括护盾。
+            </p>
+            <h3>被自爆步兵打了一定会死吗？</h3>
+            <p class="muted">
+              只有<b>最大生命 ≤30</b> 的目标会被直接击杀；生命上限更高的角色只吃伤害（还会被重装盔甲减伤），
+              所以堆血也是一种反制手段。
+            </p>
+            <h3>中途掉线会怎样？</h3>
+            <p class="muted">
+              房间会保留约 90 秒：重新打开页面会自动回到你的座位，已提交的方案也还在；
+              整场结束后重连，也会停在胜负结算页。
+            </p>
+          </section>
+        </div>
+      </div>
+
+      <footer>
+        <span id="version-badge">NeoNovaClash</span> ·
+        <a href="/about">项目介绍</a> ·
+        <a href="/">进入游戏</a> ·
+        <a href="https://github.com/CuberRobot/NeoNovaClash" target="_blank" rel="noreferrer">源码</a>
+      </footer>
+    </main>
+
+    <script src="/static/js/pages.js?v={{ASSET_VERSION}}"></script>
+  </body>
+</html>

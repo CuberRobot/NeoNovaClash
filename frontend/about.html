@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>项目介绍 · 星陨竞技场 NeoNovaClash</title>
+    <meta
+      name="description"
+      content="NeoNovaClash（星陨竞技场）：双人实时对战、战前部署、自动演算的回合制策略游戏。整场共享一份角色池，靠猜对手的阵容与策略取胜。"
+    />
+    <link rel="stylesheet" href="/static/css/pages.css?v={{ASSET_VERSION}}" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpolygon points='32,4 58,20 58,44 32,60 6,44 6,20' fill='%237c5cff' opacity='0.85'/%3E%3Cpolygon points='32,14 48,24 48,40 32,50 16,40 16,24' fill='%2367e8f9'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">NC</span>
+        <span>
+          <strong>星陨竞技场</strong>
+          <small>NeoNovaClash · 项目介绍</small>
+        </span>
+      </a>
+      <nav class="topnav">
+        <a href="/rules">规则</a>
+        <a href="https://github.com/CuberRobot/NeoNovaClash" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="is-primary" href="/">开始对局</a>
+      </nav>
+    </header>
+
+    <main class="wrap">
+      <section class="hero">
+        <p class="eyebrow">Project</p>
+        <h1>两个人，各自六张牌，三局两胜<br />——赢在部署，不赢在手速</h1>
+        <p class="lead">
+          <strong>NeoNovaClash（星陨竞技场）</strong
+          >是一个浏览器里就能玩的 1v1 策略对战：每局你只做三件事——<b>选出 3 名星灵</b>、<b>分配 4 次增益</b>、<b>定下攻击策略</b>。
+          提交之后战斗由服务端一次性演算，再用动画逐条放给你看。你决定不了每一次挥砍，但你能决定整场对局的形状。
+        </p>
+        <ul class="facts">
+          <li><b>6 → 8</b><span>整场固定池 + 每局补 1 张</span></li>
+          <li><b>3 局</b><span>三局两胜，同一份池子</span></li>
+          <li><b>20</b><span>名角色 / 12 种标签</span></li>
+          <li><b>3</b><span>标准 / 混沌 / 大战场</span></li>
+        </ul>
+      </section>
+
+      <section id="core" class="panel">
+        <h2>核心乐趣：猜对手会怎么用他那 6 张牌</h2>
+        <p class="muted">
+          大部分自动战斗游戏每局重新发牌，猜对了也没有第二局。这里不一样——
+          <b>整场三局共用同一份角色池</b>，双方不重名，打完一局还能各补一张（第二局 7 选 3、第三局 8 选 3）。
+        </p>
+        <div class="grid cols-3" style="margin-top: 16px">
+          <div class="card">
+            <h3>第一局是侦察</h3>
+            <p>对手先上谁、把谁放第 1 位（先手方在第 1 位先出手）、增益给了谁——全是线索。</p>
+          </div>
+          <div class="card">
+            <h3>第二、三局是反制</h3>
+            <p>池子只增不减，你可以换阵容、换策略，专打他上一局暴露出来的软肋。</p>
+          </div>
+          <div class="card">
+            <h3>先手值就是筹码</h3>
+            <p>出战角色先手值总和较低的一方先手。想抢先后手，就得接受更难抢的阵容强度。</p>
+          </div>
+        </div>
+        <div class="callout">
+          出手顺序是<b>位次优先、同位次先手方先动</b>：先手方是 A 时是 A1→B1→A2→B2→A3→B3；先手方是 B 时整体镜像。
+        </div>
+      </section>
+
+      <section id="loop">
+        <h2>一局是怎么打完的</h2>
+        <div class="panel">
+          <ol class="steps">
+            <li>两人进入同一个房间（房间号 / 邀请链接 / 随机匹配），系统抽一份 12 张的卡池，对半切成两个 6 张池，双方不重名。</li>
+            <li>备战：拖牌上阵、排好出击顺序、把 4 次增益（攻击 +2 / 生命 +4）分配给出击位、选一个攻击策略。</li>
+            <li>双方提交（或 <span id="prepare-timeout">90</span> 秒超时由系统随机提交）后自动演算，战斗逐条演出。</li>
+            <li>先赢 2 局者拿下整场；双方可一键「再来一局」重开一场（重新抽池）。</li>
+          </ol>
+          <p class="muted" style="margin-bottom: 0">
+            看演算不吃准备时间：上一局回放播完（或点「跳到结果」）之后，下一局的倒计时才真正开始。
+          </p>
+        </div>
+      </section>
+
+      <section id="feel">
+        <h2>做得比较用心的几处</h2>
+        <div class="grid cols-3">
+          <div class="card">
+            <h3>拖牌上阵</h3>
+            <p>默认卡牌模式：手牌拖到出击位、拖动换位、拖回手牌即下阵；不习惯拖放可一键切回按钮模式，两种视图共用同一份方案。</p>
+          </div>
+          <div class="card">
+            <h3>战斗有演出</h3>
+            <p>两军左右对峙，冲刺、弹道、伤害飘字、滞后血条、阵亡碎裂、复活与震屏，配 CC0 开源音效；可暂停、加速、跳关键节点、重播任意一局。</p>
+          </div>
+          <div class="card">
+            <h3>随时能回来</h3>
+            <p>90 秒断线重连：刷新页面自动回到原来的座位，已提交的方案还在；对局结束后重连也会停在胜负结算页。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tech" class="panel">
+        <h2>技术实现</h2>
+        <p class="muted">
+          刻意选了"能长期维护"的组合：<b>服务端 FastAPI + WebSocket，前端零构建的原生 JS</b>，
+          规则层不依赖任何 Web 框架，因此可以用命令行、机器人或测试直接跑完整场对局。
+        </p>
+        <table>
+          <tbody>
+            <tr>
+              <th>分层</th>
+              <td>
+                <code>core</code> 纯游戏逻辑（角色池 / 方案校验 / 战斗引擎 / 房间状态机）→
+                <code>web</code> HTTP 与 WebSocket 传输 → <code>frontend</code> 原生 HTML/CSS/JS
+              </td>
+            </tr>
+            <tr>
+              <th>可复现</th>
+              <td>每场战斗都有随机种子，相同输入必然得到同一份战报，便于复盘与平衡分析</td>
+            </tr>
+            <tr>
+              <th>平衡工具</th>
+              <td>
+                <code>tools/balance.py</code> 支持单局与<b>整场</b>对拍（<code>--matches</code>），
+                输出角色胜率、先手优势、补卡前后的对照
+              </td>
+            </tr>
+            <tr>
+              <th>质量门禁</th>
+              <td>109 项测试 + ruff 全绿；每个里程碑一个 tag，随时可回退</td>
+            </tr>
+            <tr>
+              <th>部署</th>
+              <td>systemd + Cloudflare Tunnel（源站不暴露端口），一键更新脚本 <code>deploy/update.sh</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="code-block">python -m venv venv &amp;&amp; source venv/bin/activate
+pip install -r requirements.txt
+python run.py            # 本机 http://127.0.0.1:8000
+./venv/bin/python -m pytest -q</div>
+      </section>
+
+      <section id="versions">
+        <h2>最近做了什么</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>v0.10.0 · 补卡</h3>
+            <p>整场固定池 + 每局补 1 张（7 选 3 → 8 选 3），并补上整场平衡对拍：座位 49.6/50.4，逐局先手 54.3%。</p>
+          </div>
+          <div class="card">
+            <h3>v0.9.0 · 规则修正</h3>
+            <p>角色池整场固定、回放不再吃备战时间（倒计时等双方看完回放）、备限 60→90 秒、赛后重连仍停在结算页。</p>
+          </div>
+          <div class="card">
+            <h3>v0.8.0 · 交互大版本</h3>
+            <p>卡牌模式上线（拖放上阵）、战斗改成舞台式逐条演出、接入 CC0 音效、前端拆成五个零构建模块。</p>
+          </div>
+          <div class="card">
+            <h3>更早</h3>
+            <p>三种玩法模式、平衡对拍、匹配与房间机制、断线重连、低多边形棋子与标签徽记素材。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="credits" class="panel">
+        <h2>开源与致谢</h2>
+        <ul class="plain">
+          <li>音效：<a href="https://kenney.nl" target="_blank" rel="noreferrer">Kenney.nl</a> 的 CC0 素材包（Interface / Impact / Sci-Fi / RPG / 8-Bit Jingles），授权说明见 <code>frontend/assets/audio/LICENSE-Kenney.txt</code>。</li>
+          <li>棋子与标签徽记：本仓库脚本生成的 SVG（低多边形风格，<a href="/static/assets/preview.html">预览页</a>）。</li>
+          <li>代码与文档：<a href="https://github.com/CuberRobot/NeoNovaClash" target="_blank" rel="noreferrer">github.com/CuberRobot/NeoNovaClash</a>。</li>
+        </ul>
+      </section>
+
+      <footer>
+        <span id="version-badge">NeoNovaClash</span> ·
+        <a href="/rules">规则说明</a> ·
+        <a href="/">进入游戏</a> ·
+        <a href="https://github.com/CuberRobot/NeoNovaClash" target="_blank" rel="noreferrer">源码</a>
+      </footer>
+    </main>
+
+    <script src="/static/js/pages.js?v={{ASSET_VERSION}}"></script>
+  </body>
+</html>

@@ -220,6 +220,16 @@ button:not(:disabled):hover {
   color: var(--text);
 }
 
+/* 顶栏里的「介绍」是链接不是按钮：让它和旁边的按钮长得一样 */
+a.ghost {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
 .ghost.small,
 .primary.small {
   padding: 6px 12px;

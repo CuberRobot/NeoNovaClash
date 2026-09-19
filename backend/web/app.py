@@ -141,14 +141,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ------------------------------------------------------------ 前端资源
     frontend_dir: Path = settings.frontend_dir
 
+    def render_page(filename: str) -> Response:
+        """返回一个独立页面，并把 {{ASSET_VERSION}} 换成当前前端指纹。
+
+        介绍页、规则页与游戏主页面共用同一套版本注入，
+        改前端后连独立页面也不会吃到缓存里的旧 CSS/JS。
+        """
+
+        page = frontend_dir / filename
+        if not page.exists():
+            return JSONResponse({"message": "页面缺失", "version": __version__}, status_code=404)
+        html = page.read_text(encoding="utf-8").replace("{{ASSET_VERSION}}", asset_version())
+        return HTMLResponse(html)
+
     @app.get("/", include_in_schema=False)
     async def index() -> Response:
-        index_file = frontend_dir / "index.html"
-        if not index_file.exists():
-            return JSONResponse({"message": "前端资源缺失", "version": __version__}, status_code=500)
-        # 注入资源版本号：静态资源的 URL 随版本变化，避免浏览器与 CDN 继续使用旧的 JS/CSS
-        html = index_file.read_text(encoding="utf-8").replace("{{ASSET_VERSION}}", asset_version())
-        return HTMLResponse(html)
+        return render_page("index.html")
+
+    @app.get("/about", include_in_schema=False)
+    async def about_page() -> Response:
+        """项目介绍页：讲清楚这是什么、怎么玩、怎么做的。"""
+
+        return render_page("about.html")
+
+    @app.get("/rules", include_in_schema=False)
+    async def rules_page() -> Response:
+        """规则介绍页：数据全部来自 /api/rules，保证与版本同步。"""
+
+        return render_page("rules.html")
 
     if frontend_dir.exists():
         app.mount("/static", StaticFiles(directory=frontend_dir), name="static")

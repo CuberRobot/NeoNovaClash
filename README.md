@@ -15,6 +15,14 @@
 
 **在线 demo**：<http://189.24.77.139/>（部署在宝塔面板的 Debian 服务器上，做法见 [docs/宝塔面板部署.md](docs/宝塔面板部署.md)）
 
+**可以直接分享的页面**：
+
+| 页面 | 地址 | 内容 |
+| --- | --- | --- |
+| 开始对局 | <https://novaclash.cc/> | 游戏本体 |
+| 项目介绍 | <https://novaclash.cc/about> | 这是什么、怎么玩、怎么做的、最近版本做了什么 |
+| 规则介绍 | <https://novaclash.cc/rules> | 完整规则与数值（直接取自 `/api/rules`，与版本同步） |
+
 ---
 
 ## 1. 快速开始
@@ -85,11 +93,15 @@ backend/                 服务端
     room.py              房间与对局状态机
 frontend/                原生 HTML/CSS/JS 单页应用（无构建步骤）
   index.html             页面骨架（五个脚本按顺序加载）
+  about.html             项目介绍页（/about）
+  rules.html             规则介绍页（/rules，数值取自 /api/rules）
   js/core.js             共享状态、工具、会话、战绩、素材地址
   js/audio.js            音效表与开关（CC0 素材，见 assets/audio）
   js/prepare.js          备战动作层 + 卡牌/按钮两种视图 + 拖放
   js/battle.js           战斗舞台、逐条播放器、战报与重播
   js/app.js              大厅、连接、房间流程与消息分发
+  js/pages.js            介绍页/规则页的少量脚本（版本徽标、规则数据渲染）
+  css/pages.css          介绍页与规则页的样式
   assets/pieces|tags     低多边形棋子与标签徽记（SVG）
   assets/audio           17 个 CC0 音效（Kenney.nl，含 LICENSE）
 deploy/                  部署模板：systemd 服务、nginx 反代、一键更新脚本

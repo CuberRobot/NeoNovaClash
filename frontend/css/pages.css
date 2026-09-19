@@ -1,0 +1,361 @@
+/* 星陨竞技场：介绍页与规则页共用的样式（独立于游戏主界面，可单独分享链接）。 */
+
+:root {
+  --bg: #070b1a;
+  --panel: rgba(20, 28, 60, 0.72);
+  --panel-border: rgba(120, 150, 255, 0.28);
+  --text: #e8ecff;
+  --text-dim: #98a3d0;
+  --accent: #7c5cff;
+  --accent-2: #67e8f9;
+  --danger: #ff6b8b;
+  --success: #4ade80;
+  --warn: #fbbf24;
+  --radius: 16px;
+  --shadow: 0 18px 40px rgba(4, 8, 24, 0.55);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: radial-gradient(circle at 18% 0%, #131a3d 0%, var(--bg) 55%, #04060f 100%);
+  color: var(--text);
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent-2);
+}
+
+code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+}
+
+.wrap {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  padding: 0 20px 64px;
+}
+
+/* ---------------------------------------------------------------- 顶栏 */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px max(20px, calc((100vw - 1080px) / 2));
+  border-bottom: 1px solid var(--panel-border);
+  background: rgba(7, 11, 26, 0.86);
+  backdrop-filter: blur(12px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  color: #050a1a;
+  font-weight: 800;
+}
+
+.brand strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.brand small {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topnav a {
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.topnav a:hover {
+  border-color: var(--accent-2);
+}
+
+.topnav a.is-primary {
+  border-color: transparent;
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  color: #050a1a;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- 通用块 */
+.hero {
+  padding: 56px 0 28px;
+}
+
+.hero h1 {
+  margin: 0 0 12px;
+  font-size: 34px;
+  line-height: 1.25;
+}
+
+.hero p.lead {
+  max-width: 62ch;
+  color: var(--text-dim);
+  font-size: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent-2);
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.panel {
+  padding: 22px 24px;
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+section {
+  margin-top: 34px;
+  scroll-margin-top: 76px;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+
+h3 {
+  margin: 22px 0 8px;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.muted {
+  color: var(--text-dim);
+}
+
+.grid {
+  display: grid;
+  gap: 14px;
+}
+
+.grid.cols-2 {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.grid.cols-3 {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.card {
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+}
+
+.card h3 {
+  margin: 0 0 6px;
+}
+
+.card p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts li {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.facts b {
+  display: block;
+  font-size: 20px;
+  color: var(--accent-2);
+}
+
+.facts span {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+th,
+td {
+  padding: 9px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: var(--accent-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+td {
+  color: var(--text-dim);
+}
+
+td strong {
+  color: var(--text);
+}
+
+.tag-icon {
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
+ol.steps,
+ul.plain {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  color: var(--text-dim);
+}
+
+ol.steps li,
+ul.plain li {
+  margin: 4px 0;
+}
+
+.callout {
+  margin-top: 16px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.1);
+  color: #ffe6b0;
+  font-size: 14px;
+}
+
+.code-block {
+  overflow-x: auto;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(4, 8, 24, 0.7);
+  color: #cfe4ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+footer {
+  margin-top: 48px;
+  padding-top: 18px;
+  border-top: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- 规则页目录 */
+.rules-layout {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.toc {
+  position: sticky;
+  top: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.toc a {
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.toc a:hover {
+  background: rgba(103, 232, 249, 0.12);
+  color: var(--text);
+}
+
+@media (max-width: 820px) {
+  .rules-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .toc {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .hero h1 {
+    font-size: 27px;
+  }
+}
