@@ -63,6 +63,7 @@
           <div class="lobby-actions">
             <button id="btn-create" class="primary" type="button">创建房间</button>
             <button id="btn-random" class="secondary" type="button">随机匹配</button>
+            <button id="btn-practice" class="ghost" type="button">练习模式（电脑对手）</button>
             <div class="join-group">
               <input id="input-code" maxlength="8" placeholder="房间号" autocomplete="off" />
               <button id="btn-join" class="secondary" type="button">加入房间</button>
@@ -113,6 +114,7 @@
             <span>比分 <b id="score-display">0 : 0</b></span>
             <span class="divider">·</span>
             <span id="prepare-status" class="muted">准备中</span>
+            <span id="opponent-name" class="muted"></span>
             <span id="mode-badge" class="pill hidden">标准模式</span>
           </div>
           <div class="timer" id="timer">

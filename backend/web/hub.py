@@ -213,6 +213,15 @@ class GameHub:
     def queue_size(self) -> int:
         return len(self.queue)
 
+    def queue_diagnostics(self, now: float | None = None) -> list[dict]:
+        """匹配队列快照（诊断用）：只有模式和已等待时长，不含昵称与 token。"""
+
+        now = time.monotonic() if now is None else now
+        return [
+            {"mode": item.mode_key, "waiting_seconds": round(now - item.since, 1)}
+            for item in self.queue
+        ]
+
     def take_opponent(
         self, mode_key: str = modes.DEFAULT_MODE_KEY, exclude: Session | None = None
     ) -> QueuedPlayer | None:

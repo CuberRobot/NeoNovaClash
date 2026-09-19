@@ -76,6 +76,7 @@ async def _handle_raw_message(websocket: WebSocket, hub: GameHub, session: Sessi
         "create_room": _create_room,
         "join_room": _join_room,
         "join_random": _join_random,
+        "create_practice": _create_practice,
         "cancel_matchmaking": _cancel_matchmaking,
         "reconnect": _reconnect,
         "submit_plan": _submit_plan,
@@ -171,6 +172,23 @@ async def _join_random(websocket: WebSocket, hub: GameHub, session: Session, mes
 async def _cancel_matchmaking(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
     hub.dequeue(session)
     await websocket.send_json(protocol.matchmaking_cancelled())
+
+
+async def _create_practice(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    """练习模式：一个人 + 一个电脑对手，直接开局，不占用匹配队列。"""
+
+    hub.dequeue(session)
+    if session.in_room:
+        await hub.leave(session, reason="开始练习模式")
+    try:
+        room = hub.create_room(modes.get_mode(message.mode))
+        player, outgoings = room.join(message.name)
+        hub.bind(room.code, player.seat, websocket)
+        session.room_code, session.seat, session.name = room.code, player.seat, player.name
+        outgoings.extend(room.join_bot())          # 第二个人是电脑
+        await hub.dispatch(room, outgoings)
+    except RoomError as exc:
+        await websocket.send_json(protocol.error(str(exc), fatal=True))
 
 
 async def _reconnect(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:

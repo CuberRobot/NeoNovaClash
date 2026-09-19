@@ -264,6 +264,7 @@
     state.roomCode = message.room_code;
     state.seat = message.seat;
     state.score = message.score || [0, 0];
+    rememberPlayers(message.players);
     state.opponentDisconnected = false;
     el("matching").classList.add("hidden");
     hideOpponentBanner();
@@ -288,6 +289,7 @@
     state.roomCode = message.room_code;
     state.seat = message.seat;
     state.score = message.score || [0, 0];
+    rememberPlayers(message.players);
     NC.saveSession(message.room_code, message.token);
     NC.setConn("ok", "已连接");
     NC.prepare.stopTimer();
@@ -333,6 +335,7 @@
   }
 
   function renderWaitingPlayers(players) {
+    rememberPlayers(players);
     const list = el("waiting-players");
     list.innerHTML = "";
     for (let seat = 0; seat < 2; seat += 1) {
@@ -341,7 +344,8 @@
       const nameNode = document.createElement("b");
       const status = document.createElement("span");
       if (player) {
-        nameNode.textContent = player.name + (seat === state.seat ? "（你）" : "");
+        const suffix = seat === state.seat ? "（你）" : player.is_bot ? "（电脑）" : "";
+        nameNode.textContent = player.name + suffix;
         status.textContent = "已就位";
       } else {
         nameNode.textContent = "等待对手加入…";
@@ -351,6 +355,16 @@
       li.append(nameNode, status);
       list.appendChild(li);
     }
+  }
+
+  /** 记住对手是谁（含"是不是电脑"），备战页与战场都要显示。 */
+  function rememberPlayers(players) {
+    if (!Array.isArray(players) || state.seat === null) return;
+    const opponent = players.find((item) => item.seat !== state.seat);
+    if (!opponent) return;
+    state.opponentName = opponent.name || "";
+    state.opponentIsBot = Boolean(opponent.is_bot);
+    NC.prepare.renderOpponent();
   }
 
   function copyRoomCode() {
@@ -404,6 +418,7 @@
     state.resultTimer = null;
     NC.hideOverlay();
     applyModeFromMessage(message);
+    rememberPlayers(message.players);
     NC.prepare.enterRound(message);
     // 这一局的倒计时要等"回放看完"的确认：刚重连/没拿到战报的客户端直接确认
     if (message.awaiting_replay) send({ type: "replay_done" });
@@ -525,8 +540,8 @@
     const win = message.winner_seat === state.seat;
     const myScore = state.score[state.seat] || 0;
     const opponentScore = state.score[1 - state.seat] || 0;
-    // 赛后重连会再弹一次结算，这时候不能重复记战绩
-    if (opts.record !== false) NC.recordMatch(win, myScore, opponentScore);
+    // 赛后重连会再弹一次结算（不能重复记），练习模式打电脑也不计入战绩
+    if (opts.record !== false && !state.opponentIsBot) NC.recordMatch(win, myScore, opponentScore);
     NC.audio.play(win ? "victory" : "defeat");
     const history = (message.history || [])
       .map((item) => {
@@ -690,7 +705,7 @@
   /* ------------------------------------------------------------ 事件绑定 */
   // 大厅三个按钮的"防连点"锁：一次只允许发出一个进房/匹配请求。
   // 连点两次曾经会把自己配给自己（服务端也已修，这里是前端的第一道防线）。
-  const LOBBY_ACTIONS = ["btn-create", "btn-random", "btn-join"];
+  const LOBBY_ACTIONS = ["btn-create", "btn-random", "btn-practice", "btn-join"];
   let lobbyLockTimer = null;
 
   function lockLobbyActions() {
@@ -737,6 +752,13 @@
       if (!name) return;
       lockLobbyActions();
       if (!send({ type: "join_random", name: name, mode: state.lobbyMode })) unlockLobbyActions();
+    });
+
+    el("btn-practice").addEventListener("click", () => {
+      const name = requireName();
+      if (!name) return;
+      lockLobbyActions();
+      if (!send({ type: "create_practice", name: name, mode: state.lobbyMode })) unlockLobbyActions();
     });
 
     el("btn-cancel-match").addEventListener("click", () => send({ type: "cancel_matchmaking" }));

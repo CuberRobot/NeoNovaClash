@@ -752,6 +752,20 @@
     else if (state.submitted) node.textContent = "你已提交，等待对手…";
     else if (state.opponentReady) node.textContent = "对手已提交，等待你";
     else node.textContent = "准备中";
+    renderOpponent();
+  }
+
+  /** 显示对手是谁：真人显示昵称，练习模式明确标注"电脑"。 */
+  function renderOpponent() {
+    const node = el("opponent-name");
+    if (!node) return;
+    if (!state.opponentName) {
+      node.textContent = "";
+      return;
+    }
+    node.textContent = state.opponentIsBot
+      ? `对手：${state.opponentName}（电脑，不是真人）`
+      : `对手：${state.opponentName}`;
   }
 
   // ---------------------------------------------------------------- 方案与提交
@@ -1101,6 +1115,7 @@
     onPlanAccepted,
     onPoolUpdated,
     pickCard,
+    renderOpponent,
     bindDrag,
   };
 })();

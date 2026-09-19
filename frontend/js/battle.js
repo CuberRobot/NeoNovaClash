@@ -488,6 +488,10 @@
     state.battle = { roundIndex: message.round_index, events: events, lineups: message.lineups || [], message: message };
     el("battle-round").textContent = String(message.round_index);
     el("battle-score").textContent = state.score.join(" : ");
+    el("team-a-title").textContent = "你";
+    el("team-b-title").textContent = state.opponentName
+      ? `对手：${state.opponentName}${state.opponentIsBot ? "（电脑）" : ""}`
+      : "对手";
     el("battle-log").innerHTML = "";
     el("log-progress").textContent = `0 / ${events.length}`;
     el("btn-pause").textContent = "暂停";

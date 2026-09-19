@@ -30,6 +30,13 @@ class RoomError(Exception):
     """房间操作失败，message 直接展示给玩家。"""
 
 
+# 练习模式里电脑对手的默认昵称（前端会再补一句"电脑，不是真人"，避免被误当成真人）
+BOT_NAME = "练习对手"
+# 机器人的"思考"时间（秒）：看完回放后 / 出方案前，随机取值，像真人一样不会瞬发
+BOT_THINK_AFTER_REPLAY = (2.0, 6.0)
+BOT_THINK_BEFORE_PLAN = (4.0, 16.0)
+
+
 class Phase(str, Enum):
     WAITING = "waiting"  # 等待对手加入
     PREPARING = "preparing"  # 选人 / 增益 / 策略阶段
@@ -62,6 +69,8 @@ class Player:
     replay_done: bool = False  # 是否已经看完上一局的回放
     candidates: list[rules.PoolCard] = field(default_factory=list)  # 补卡候选（3 选 1）
     picked: bool = False  # 本局是否已经选过补卡
+    is_bot: bool = False  # 练习模式里的电脑对手
+    bot_action_at: float = 0.0  # 机器人下一次动作的时间（monotonic）
     connected: bool = True
     reconnect_deadline: float | None = None  # 掉线后允许重连的截止时间（monotonic）
 
@@ -79,6 +88,7 @@ class Player:
             "score": self.score,
             "submitted": self.submitted,
             "connected": self.connected,
+            "is_bot": self.is_bot,
         }
 
 
@@ -208,6 +218,24 @@ class Room:
             outgoings.append(Outgoing(0, self._msg("opponent_joined", name=player.name)))
             outgoings.extend(self.start_round())
         return player, outgoings
+
+    def join_bot(self, name: str = BOT_NAME) -> list[Outgoing]:
+        """练习模式：直接坐上一个电脑对手，不走匹配队列。"""
+
+        if self.is_closed:
+            raise RoomError("房间已关闭，请重新创建房间")
+        if self.is_full:
+            raise RoomError("房间已经满员")
+        if self.phase is not Phase.WAITING:
+            raise RoomError("对局已经开始，无法加入")
+        bot = Player(seat=len(self.players), name=name, token=secrets.token_hex(8), is_bot=True)
+        self.players.append(bot)
+        self.touch()
+        outgoings: list[Outgoing] = []
+        if self.is_full:
+            outgoings.append(Outgoing(0, self._msg("opponent_joined", name=bot.name)))
+            outgoings.extend(self.start_round())
+        return outgoings
 
     def disconnect(self, seat: int, now: float | None = None) -> list[Outgoing]:
         """玩家掉线：先给一段重连宽限，超时才关闭房间。"""
@@ -339,6 +367,7 @@ class Room:
         # 第二局起发补卡候选：随机 3 张，选 1 张进池（7 选 3 → 8 选 3）
         self.deal_candidates()
         self.awaiting_replay = after_battle
+        self._schedule_bot(after_battle)
         if after_battle:
             self.deadline = None
             self.replay_deadline = time.monotonic() + C.REPLAY_GRACE_SECONDS
@@ -358,6 +387,8 @@ class Room:
                         score=self.scores(),
                         deadline_seconds=self.prepare_timeout,
                         awaiting_replay=after_battle,
+                        # 对手昵称（含"是不是电脑"）随每局一起下发，前端好显示"对手：xxx"
+                        players=[{"seat": p.seat, "name": p.name, "is_bot": p.is_bot} for p in self.players],
                         pool=rules.pool_payload(player.pool),
                         candidates=rules.pool_payload(player.candidates),
                         draft_size=C.CARD_DRAFT_SIZE,
@@ -421,6 +452,10 @@ class Room:
                 return self.close(f"{player.name} 掉线超过 {self.reconnect_grace} 秒未重连，房间已关闭")
         if self.phase is not Phase.PREPARING:
             return []
+        if self.bots():  # 练习模式：电脑对手按自己的节奏行动
+            outgoings = self._tick_bots(now)
+            if outgoings:
+                return outgoings
         if self.awaiting_replay:
             # 有人迟迟没确认"回放看完了"（关掉页面、回放一直暂停…），兜底开始倒计时
             if self.replay_deadline is not None and now >= self.replay_deadline:
@@ -453,7 +488,43 @@ class Room:
         outgoings.extend(self._resolve_round())
         return outgoings
 
-    # ------------------------------------------------------------ 回放与倒计时
+    # ------------------------------------------------------------ 电脑对手（练习模式）
+    def bots(self) -> list[Player]:
+        return [player for player in self.players if player.is_bot]
+
+    def _tick_bots(self, now: float) -> list[Outgoing]:
+        """推进电脑对手：看完回放 → 挑补卡 → 出方案。人类玩家感觉就像对面在思考。"""
+
+        outgoings: list[Outgoing] = []
+        for bot in self.bots():
+            if self.phase is not Phase.PREPARING:
+                return outgoings
+            if self.awaiting_replay:
+                if not bot.replay_done and now >= bot.bot_action_at:
+                    outgoings.extend(self.mark_replay_done(bot.seat))
+                    bot.bot_action_at = now + self.rng.uniform(*BOT_THINK_AFTER_REPLAY)
+                continue
+            if bot.submitted or now < bot.bot_action_at:
+                continue
+            if bot.candidates and not bot.picked:
+                pick = self.rng.choice(bot.candidates)
+                outgoings.extend(self._apply_pick(bot, pick, auto=True))
+            try:
+                outgoings.extend(self.submit(bot.seat, rules.random_plan(bot.pool, self.rng, self.mode)))
+            except (RoomError, rules.RuleError):  # pragma: no cover - 正常不会发生
+                bot.submitted = True  # 兜底：别让机器人卡住整局
+            bot.bot_action_at = float("inf")  # 本局不再动作
+        return outgoings
+
+    def _schedule_bot(self, after_battle: bool) -> None:
+        """给每个机器人安排下一次动作的时间。"""
+
+        low, high = BOT_THINK_AFTER_REPLAY if after_battle else BOT_THINK_BEFORE_PLAN
+        deadline = time.monotonic() + self.rng.uniform(low, high)
+        for bot in self.bots():
+            bot.replay_done = not after_battle
+            bot.bot_action_at = deadline
+
     # ------------------------------------------------------------ 补卡
     def candidates_per_player(self) -> int:
         """当前还能给每人发几张补卡候选（不够就不发，大战场就是这种情况）。"""
@@ -670,6 +741,8 @@ class Room:
         player = self.player_of(seat)
         player.rematch = True
         other = self.opponent_of(seat)
+        if other.is_bot:  # 练习模式：电脑对手总是同意再来一局
+            other.rematch = True
 
         if not other.rematch:
             return [Outgoing(other.seat, self._msg("opponent_rematch"))]

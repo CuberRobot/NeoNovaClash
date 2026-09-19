@@ -132,6 +132,60 @@ def test_take_opponent_can_exclude_your_own_session():
     assert hub.take_opponent("standard", exclude=mine.session) is other
 
 
+def test_queue_never_holds_the_same_session_twice():
+    """队列不变量：同一条连接只能有一条排队记录（连点多少次都一样）。"""
+
+    app = create_app(Settings(prepare_timeout=5))
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "hello"
+            for _ in range(3):
+                ws.send_json({"type": "join_random", "name": "连点狂魔", "mode": "standard"})
+                assert ws.receive_json()["type"] == "matchmaking_waiting"
+
+            hub = app.state.hub
+            assert hub.queue_size() == 1
+            assert len({id(item.session) for item in hub.queue}) == 1
+            assert len(hub.rooms) == 0
+
+
+def test_matched_players_leave_the_queue_behind():
+    """配对成功后，两个人的排队记录都必须消失，且不能还留在队列里被别人配到。"""
+
+    app = create_app(Settings(prepare_timeout=5))
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws_a, client.websocket_connect("/ws") as ws_b:
+            assert ws_a.receive_json()["type"] == "hello"
+            assert ws_b.receive_json()["type"] == "hello"
+
+            ws_a.send_json({"type": "join_random", "name": "甲", "mode": "standard"})
+            assert ws_a.receive_json()["type"] == "matchmaking_waiting"
+
+            ws_b.send_json({"type": "join_random", "name": "乙", "mode": "standard"})
+            joined = ws_b.receive_json()
+
+            assert joined["type"] == "room_joined"
+            assert app.state.hub.queue_size() == 0
+            # 两个座位绑到的是各自的连接，绝不是同一条
+            sockets = app.state.hub.connections[joined["room_code"]]
+            assert sockets[0] is not sockets[1]
+
+
+def test_health_lists_queue_with_waiting_time():
+    app = create_app(Settings(prepare_timeout=5))
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "hello"
+            ws.send_json({"type": "join_random", "name": "排队者", "mode": "chaos"})
+            assert ws.receive_json()["type"] == "matchmaking_waiting"
+
+            body = client.get("/api/health").json()
+
+            assert body["queue"] == 1
+            assert body["queue_list"][0]["mode"] == "chaos"
+            assert body["queue_list"][0]["waiting_seconds"] >= 0
+
+
 def test_health_exposes_queue_and_room_diagnostics():
     app = create_app(Settings(prepare_timeout=5))
     with TestClient(app) as client:

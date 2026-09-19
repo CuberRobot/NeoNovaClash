@@ -90,6 +90,16 @@ class JoinRandomMessage(BaseModel):
     _clean = field_validator("name")(_clean_name)
 
 
+class CreatePracticeMessage(BaseModel):
+    """练习模式：开一个带电脑对手的房间（不进匹配队列）。"""
+
+    type: Literal["create_practice"]
+    name: str
+    mode: str | None = None
+
+    _clean = field_validator("name")(_clean_name)
+
+
 class CancelMatchmakingMessage(BaseModel):
     type: Literal["cancel_matchmaking"]
 
@@ -134,6 +144,7 @@ INBOUND_TYPES = {
     "create_room": CreateRoomMessage,
     "join_room": JoinRoomMessage,
     "join_random": JoinRandomMessage,
+    "create_practice": CreatePracticeMessage,
     "cancel_matchmaking": CancelMatchmakingMessage,
     "reconnect": ReconnectMessage,
     "submit_plan": SubmitPlanMessage,
@@ -148,6 +159,7 @@ InboundMessage = (
     CreateRoomMessage
     | JoinRoomMessage
     | JoinRandomMessage
+    | CreatePracticeMessage
     | CancelMatchmakingMessage
     | ReconnectMessage
     | SubmitPlanMessage

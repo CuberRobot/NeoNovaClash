@@ -121,6 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             # 诊断用：匹配队列长度 + 每个房间的座位状态（只看连接/提交，不含昵称与 token）
             "queue": hub.queue_size(),
+            "queue_list": hub.queue_diagnostics(),
             "room_list": [room.diagnostic_payload() for room in hub.rooms.values()],
             "totals": {
                 "rooms_created": hub.stats.created,

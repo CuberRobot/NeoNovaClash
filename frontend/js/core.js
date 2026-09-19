@@ -24,6 +24,8 @@
     reconnectTimer: null,
     reconnectAttempts: 0,
     name: "",
+    opponentName: "",
+    opponentIsBot: false,
     roomCode: null,
     seat: null,
     roundIndex: 0,
