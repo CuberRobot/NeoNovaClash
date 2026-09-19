@@ -529,6 +529,23 @@ select:focus {
   color: var(--danger);
 }
 
+/* 上一局回放还没看完：倒计时还没开始，用中性的颜色提示 */
+.timer.is-pending {
+  color: var(--accent-2);
+}
+
+.timer.is-pending .timer-bar i {
+  width: 100% !important;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  animation: pending-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pending-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .timer.is-urgent .timer-bar i {
   background: linear-gradient(90deg, var(--warn), var(--danger));
 }

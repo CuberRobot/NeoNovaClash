@@ -208,6 +208,12 @@
         NC.prepare.render();
         toast("对手已提交方案");
         break;
+      case "prepare_started":
+        // 双方都看完回放了，本局的倒计时现在才真正开始
+        NC.prepare.startTimer(message.deadline_seconds || 90);
+        state.nextRoundDeadline = Date.now() + (message.deadline_seconds || 90) * 1000;
+        toast("回放已看完，开始计时");
+        break;
       case "battle_report":
         onBattleReport(message);
         break;
@@ -290,7 +296,17 @@
     if (message.phase === "preparing" && message.pool) {
       NC.hideOverlay();
       NC.prepare.restoreFromSync(message);
+      // 重连后没有回放要看了，直接替玩家确认，让倒计时正常开始
+      if (message.awaiting_replay) send({ type: "replay_done" });
       toast("已回到原来的房间，继续你的部署");
+      return;
+    }
+
+    // 整场已经结束：把结算面板重新弹出来，而不是把玩家丢回大厅
+    if (message.phase === "finished" && message.final) {
+      NC.hideOverlay();
+      state.score = message.final.score || state.score;
+      showGameOverOverlay(message.final, { record: false, restored: true });
       return;
     }
 
@@ -354,7 +370,10 @@
   function onRoundStart(message) {
     NC.prepare.stopTimer();
     state.nextRound = message;
-    state.nextRoundDeadline = Date.now() + (message.deadline_seconds || 60) * 1000;
+    // 等回放的这一局还没开始计时，先别给玩家一个假倒计时
+    state.nextRoundDeadline = message.awaiting_replay
+      ? 0
+      : Date.now() + (message.deadline_seconds || 90) * 1000;
     // 上一局的回放还没放完：先让玩家看完，播完再由 hooks.onFinished 接上这一局
     if (state.battle && !NC.battle.isFinished()) {
       if (!NC.battle.isPlaying()) NC.battle.togglePause();
@@ -378,6 +397,8 @@
     NC.hideOverlay();
     applyModeFromMessage(message);
     NC.prepare.enterRound(message);
+    // 这一局的倒计时要等"回放看完"的确认：刚重连/没拿到战报的客户端直接确认
+    if (message.awaiting_replay) send({ type: "replay_done" });
   }
 
   /* ------------------------------------------------------------ 战斗回放 */
@@ -443,8 +464,10 @@
       ? Math.max(0, Math.round((state.nextRoundDeadline - Date.now()) / 1000))
       : 0;
     const hint = state.nextRound
-      ? `下一局已经开始计时，准备时间还剩约 ${remain} 秒。`
-      : "下一局马上开始，新的角色池会重新发到手上。";
+      ? state.nextRound.awaiting_replay
+        ? "下一局的倒计时会在回放播完后开始，先看演算不吃准备时间。"
+        : `下一局已经开始计时，准备时间还剩约 ${remain} 秒。`
+      : "下一局马上开始，角色池不变，换一套打法试试。";
     NC.audio.play(result.winner_seat === state.seat ? "victory" : result.winner_seat === null ? "ui-round" : "defeat", {
       volume: 0.5,
     });
@@ -483,7 +506,8 @@
     showGameOverOverlay(message);
   }
 
-  function showGameOverOverlay(message) {
+  function showGameOverOverlay(message, options) {
+    const opts = options || {};
     state.pendingGameOver = null;
     state.pendingResult = null;
     state.nextRound = null;
@@ -493,7 +517,8 @@
     const win = message.winner_seat === state.seat;
     const myScore = state.score[state.seat] || 0;
     const opponentScore = state.score[1 - state.seat] || 0;
-    NC.recordMatch(win, myScore, opponentScore);
+    // 赛后重连会再弹一次结算，这时候不能重复记战绩
+    if (opts.record !== false) NC.recordMatch(win, myScore, opponentScore);
     NC.audio.play(win ? "victory" : "defeat");
     const history = (message.history || [])
       .map((item) => {
@@ -505,6 +530,7 @@
       `<h2>${win ? "🏆 你赢下了整场对局" : "对局结束"}</h2>
        <div class="score-big">${myScore} : ${opponentScore}</div>
        <p>${win ? "星核为你亮起，归寂潮退去。" : "对手的部署更胜一筹，再来一局试试别的思路。"}</p>
+       ${opts.restored ? '<p class="hint">这是刚才那场对局的结算页，重新打开页面也会回到这里。</p>' : ""}
        <ul class="history">${history}</ul>
        <div class="overlay-actions">
          <button class="primary" id="btn-rematch" type="button">再来一局</button>
@@ -601,11 +627,12 @@
 
       <h3>一局怎么打</h3>
       <ul>
-        <li>每局双方各自获得 ${c.pool_size} 名随机角色构成的角色池，从中选出 ${c.team_size} 名出战。</li>
+        <li><b>整场三局共用一份角色池</b>：开局双方各自拿到 ${c.pool_size} 名随机角色，这三局里池子不变，每局从同一份池子里选出 ${c.team_size} 名出战。</li>
+        <li>所以真正的胜负手是<b>猜对手会怎么用他手上那 6 张牌</b>：谁上阵、排在哪一位、增益给了谁、优先打谁。</li>
         <li>选择顺序就是出击顺序，战斗时按 A1 → B1 → A2 → B2 → A3 → B3 依次行动。</li>
         <li>每人有 ${c.bonus_per_round} 次增益机会：攻击 +${c.bonus_atk} 或生命 +${c.bonus_hp}，单个出击位最多 ${c.max_bonus_per_fighter} 次。</li>
         <li>双方提交后自动演算，先赢下 ${c.rounds_to_win} 局的一方获得整场胜利。</li>
-        <li>准备阶段限时 ${c.prepare_timeout} 秒，超时由系统随机提交。</li>
+        <li>备局限时 ${c.prepare_timeout} 秒；上一局的回放播完（或你点「跳到结果」）之后才开始计时，看演算不吃准备时间。</li>
       </ul>
 
       <h3>先手与目标</h3>

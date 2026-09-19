@@ -715,9 +715,21 @@
   // ---------------------------------------------------------------- 计时
   let urgentWarned = false;
 
+  /** 上一局的回放还没看完：先不开始倒计时，避免"看演算"吃掉准备时间。 */
+  function setTimerPending(text) {
+    stopTimer();
+    state.deadlineAt = 0;
+    const timer = el("timer");
+    timer.classList.remove("is-urgent");
+    timer.classList.add("is-pending");
+    el("timer-text").textContent = text || "等回放";
+    el("timer-fill").style.width = "100%";
+  }
+
   function startTimer(seconds) {
     stopTimer();
     urgentWarned = false;
+    el("timer").classList.remove("is-pending");
     el("timer").classList.remove("is-urgent");
     state.deadlineAt = Date.now() + seconds * 1000;
     const total = seconds * 1000;
@@ -771,7 +783,10 @@
     el("submit-hint").textContent = "";
     render();
     NC.show("screen-prepare");
-    startTimer(message.deadline_seconds || 60);
+    // round_start 里如果标了 awaiting_replay，说明上一局回放还没看完：
+    // 服务器会等双方确认（或 30 秒兜底）再开始倒计时
+    if (message.awaiting_replay) setTimerPending("等回放");
+    else startTimer(message.deadline_seconds || 90);
     if (options && options.restored) NC.toast("已回到原来的房间，继续你的部署");
   }
 
@@ -801,7 +816,8 @@
     resetUndo();
     render();
     NC.show("screen-prepare");
-    startTimer(message.remaining_seconds || 60);
+    if (message.awaiting_replay) setTimerPending("等回放");
+    else startTimer(message.remaining_seconds || 90);
   }
 
   // ---------------------------------------------------------------- 拖拽（卡牌视图）
@@ -996,6 +1012,7 @@
     removeSlot,
     addBonus,
     startTimer,
+    setTimerPending,
     stopTimer,
     onPlanAccepted,
     bindDrag,
