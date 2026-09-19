@@ -59,6 +59,7 @@ class Player:
     submitted: bool = False
     auto_submitted: bool = False
     rematch: bool = False
+    replay_done: bool = False                   # 是否已经看完上一局的回放
     connected: bool = True
     reconnect_deadline: float | None = None   # 掉线后允许重连的截止时间（monotonic）
 
@@ -99,6 +100,11 @@ class Room:
         self.phase = Phase.WAITING
         self.round_index = 0                     # 当前局数，从 1 开始显示
         self.deadline: float | None = None       # 准备阶段截止时间（monotonic）
+        self.replay_deadline: float | None = None  # 等客户端看完回放的兜底时间（monotonic）
+        self.awaiting_replay = False             # 本局倒计时是否还没开始（等回放）
+        # 整场三局共用同一份角色池：核心玩法是"猜对手会从这 6 张里选谁、怎么排"
+        self.match_pools: list[list[Character]] | None = None
+        self.final_payload: dict | None = None   # 整场结果，供赛后重连恢复结算页
         self.history: list[dict] = []            # 每局结果摘要
         self.closed_reason = ""
         self.created_at = time.monotonic()
@@ -216,7 +222,10 @@ class Room:
             pass
         player.connected = True
         player.reconnect_deadline = None
-        if self.deadline is not None:
+        if self.awaiting_replay:
+            # 倒计时还没开始（在等回放），回到界面后由客户端继续确认
+            remaining = self.prepare_timeout
+        elif self.deadline is not None:
             # 备战阶段的剩余时间按"掉线期间照常流逝"计算
             remaining = max(1, int(self.deadline - time.monotonic()))
         else:
@@ -241,7 +250,11 @@ class Room:
             submitted=player.submitted,
             opponent_ready=self.is_full and self.opponent_of(player.seat).submitted,
             remaining_seconds=remaining_seconds,
+            awaiting_replay=self.awaiting_replay,
         )
+        # 整场已经结束的房间：把结算结果一起发回去，客户端直接重新弹出胜负面板
+        if self.phase is Phase.FINISHED and self.final_payload is not None:
+            payload["final"] = self.final_payload
         if player.pool:
             payload["pool"] = rules.pool_payload(player.pool)
             payload["mode"] = self.mode.key
@@ -269,18 +282,31 @@ class Room:
         return [Outgoing(None, self._msg("room_closed", reason=reason))]
 
     # ------------------------------------------------------------ 局内流程
-    def start_round(self) -> list[Outgoing]:
-        """开始新的一局：重新抽取双方角色池并进入准备阶段。"""
+    def start_round(self, *, after_battle: bool = False) -> list[Outgoing]:
+        """开始新的一局。
+
+        - 角色池整场固定：只在第一局抽取，后面两局沿用同一份池子；
+        - 上一局刚打完（after_battle）时**不立刻开始倒计时**：
+          等两边客户端都看完回放（replay_done）再开始，兜底 REPLAY_GRACE_SECONDS 秒。
+        """
 
         if self.is_closed:
             return []
         self.round_index += 1
-        self.deadline = time.monotonic() + self.prepare_timeout
         self.phase = Phase.PREPARING
-        pools = rules.generate_pools(self.rng, self.mode)
-        for player, pool in zip(self.players, pools, strict=True):
+        if self.match_pools is None:
+            self.match_pools = rules.generate_pools(self.rng, self.mode)
+        for player, pool in zip(self.players, self.match_pools, strict=True):
             player.reset_for_round()
             player.pool = pool
+            player.replay_done = not after_battle
+        self.awaiting_replay = after_battle
+        if after_battle:
+            self.deadline = None
+            self.replay_deadline = time.monotonic() + C.REPLAY_GRACE_SECONDS
+        else:
+            self.deadline = time.monotonic() + self.prepare_timeout
+            self.replay_deadline = None
         self.touch()
 
         outgoings: list[Outgoing] = []
@@ -293,6 +319,7 @@ class Room:
                         round_index=self.round_index,
                         score=self.scores(),
                         deadline_seconds=self.prepare_timeout,
+                        awaiting_replay=after_battle,
                         pool=rules.pool_payload(player.pool),
                         mode=self.mode.key,
                         mode_name=self.mode.name,
@@ -346,7 +373,14 @@ class Room:
         for player in self.players:
             if not player.connected and player.reconnect_deadline is not None and now >= player.reconnect_deadline:
                 return self.close(f"{player.name} 掉线超过 {self.reconnect_grace} 秒未重连，房间已关闭")
-        if self.phase is not Phase.PREPARING or self.deadline is None or now < self.deadline:
+        if self.phase is not Phase.PREPARING:
+            return []
+        if self.awaiting_replay:
+            # 有人迟迟没确认"回放看完了"（关掉页面、回放一直暂停…），兜底开始倒计时
+            if self.replay_deadline is not None and now >= self.replay_deadline:
+                return self.begin_prepare()
+            return []
+        if self.deadline is None or now < self.deadline:
             return []
         outgoings: list[Outgoing] = []
         for player in self.players:
@@ -370,11 +404,50 @@ class Room:
         outgoings.extend(self._resolve_round())
         return outgoings
 
+    # ------------------------------------------------------------ 回放与倒计时
+    def begin_prepare(self) -> list[Outgoing]:
+        """正式开始本局的准备倒计时（回放看完或兜底时间到了）。"""
+
+        if self.phase is not Phase.PREPARING or not self.awaiting_replay:
+            return []
+        self.awaiting_replay = False
+        self.replay_deadline = None
+        self.deadline = time.monotonic() + self.prepare_timeout
+        self.touch()
+        return [
+            Outgoing(
+                None,
+                self._msg(
+                    "prepare_started",
+                    round_index=self.round_index,
+                    deadline_seconds=self.prepare_timeout,
+                ),
+            )
+        ]
+
+    def mark_replay_done(self, seat: int) -> list[Outgoing]:
+        """客户端确认"上一局的回放已经看完"，两边都确认后开始倒计时。"""
+
+        if self.phase is not Phase.PREPARING or not self.awaiting_replay:
+            return []
+        player = self.player_of(seat)
+        if player.replay_done:
+            return []
+        player.replay_done = True
+        self.touch()
+        if all(p.replay_done for p in self.players):
+            return self.begin_prepare()
+        return []
+
     def _resolve_round(self) -> list[Outgoing]:
+        """双方方案齐了就开打：算出战报、更新比分、决定进入下一局还是整场结束。"""
+
         if self.phase is Phase.BATTLING or self.is_closed or not self.is_full:
             return []
         self.phase = Phase.BATTLING
         self.deadline = None
+        self.replay_deadline = None
+        self.awaiting_replay = False
         self.touch()
 
         teams = [
@@ -431,7 +504,7 @@ class Room:
                 )
             )
             self.round_index -= 1  # start_round 会自增，保持局数不变
-            outgoings.extend(self.start_round())
+            outgoings.extend(self.start_round(after_battle=True))
             return outgoings
 
         outgoings.append(
@@ -453,20 +526,21 @@ class Room:
             self.phase = Phase.FINISHED
             for player in self.players:
                 player.rematch = False
+            # 存一份整场结果：赛后再重连（刷新页面）也要能看到结算页，而不是被丢回大厅
+            self.final_payload = {
+                "winner_seat": winner_seat,
+                "score": self.scores(),
+                "history": list(self.history),
+                "players": [{"seat": p.seat, "name": p.name} for p in self.players],
+            }
             outgoings.append(
                 Outgoing(
                     None,
-                    self._msg(
-                        "game_over",
-                        winner_seat=winner_seat,
-                        score=self.scores(),
-                        history=list(self.history),
-                        players=[{"seat": p.seat, "name": p.name} for p in self.players],
-                    ),
+                    self._msg("game_over", **self.final_payload),
                 )
             )
         else:
-            outgoings.extend(self.start_round())
+            outgoings.extend(self.start_round(after_battle=True))
         return outgoings
 
     def _round_seed(self) -> int:
@@ -491,6 +565,11 @@ class Room:
             p.score = 0
             p.rematch = False
             p.reset_for_round()
+        self.match_pools = None       # 新的一场对局：重新抽一份整场固定的角色池
+        self.final_payload = None
+        self.awaiting_replay = False
+        self.replay_deadline = None
+        self.deadline = None
         self.history.clear()
         self.round_index = 0
         self.rng = random.Random(secrets.randbelow(2**31 - 1))

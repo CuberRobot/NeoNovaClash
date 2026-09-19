@@ -125,6 +125,46 @@ def test_private_pools_stay_private(client: TestClient):
         assert round_a["strategies"]
 
 
+def test_pool_is_fixed_for_the_whole_match(client: TestClient):
+    """整场三局共用同一份角色池：玩法核心是猜对手怎么用这 6 张牌。"""
+
+    with two_players(client) as (ws_a, ws_b):
+        _code, round_a, round_b = start_match(ws_a, ws_b)
+        first_pool_a = [card["id"] for card in round_a["pool"]]
+        first_pool_b = [card["id"] for card in round_b["pool"]]
+        assert first_pool_a != first_pool_b          # 双方池子不重复
+
+        seen = 1
+        while seen < 3:
+            ws_a.send_json(make_plan(round_a))
+            ws_b.send_json(make_plan(round_b))
+            messages_a = collect(ws_a, {"round_start", "game_over"})
+            messages_b = collect(ws_b, {"round_start", "game_over"})
+            if messages_a[-1]["type"] == "game_over":
+                assert messages_b[-1]["type"] == "game_over"
+                break
+            seen += 1
+            round_a, round_b = messages_a[-1], messages_b[-1]
+            assert [card["id"] for card in round_a["pool"]] == first_pool_a
+            assert [card["id"] for card in round_b["pool"]] == first_pool_b
+
+
+def test_second_round_announces_awaiting_replay(client: TestClient):
+    """下一局的 round_start 会告诉客户端"先看回放，倒计时还没开始"。"""
+
+    with two_players(client) as (ws_a, ws_b):
+        _code, round_a, round_b = start_match(ws_a, ws_b)
+        assert round_a["awaiting_replay"] is False      # 第一局没有回放可看
+
+        ws_a.send_json(make_plan(round_a))
+        ws_b.send_json(make_plan(round_b))
+        messages_a = collect(ws_a, {"round_start", "game_over"})
+        if messages_a[-1]["type"] == "game_over":       # pragma: no cover - 两局结束
+            return
+        assert messages_a[-1]["awaiting_replay"] is True
+        assert messages_a[-1]["deadline_seconds"] > 0
+
+
 def test_invalid_plan_returns_actionable_error(client: TestClient):
     with two_players(client) as (ws_a, ws_b):
         _code, round_a, _round_b = start_match(ws_a, ws_b)

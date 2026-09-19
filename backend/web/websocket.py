@@ -79,6 +79,7 @@ async def _handle_raw_message(websocket: WebSocket, hub: GameHub, session: Sessi
         "cancel_matchmaking": _cancel_matchmaking,
         "reconnect": _reconnect,
         "submit_plan": _submit_plan,
+        "replay_done": _replay_done,
         "rematch": _rematch,
         "leave_room": _leave_room,
         "ping": _ping,
@@ -210,6 +211,16 @@ async def _rematch(websocket: WebSocket, hub: GameHub, session: Session, message
     except RoomError as exc:
         await websocket.send_json(protocol.error(str(exc)))
         return
+    await hub.dispatch(room, outgoings)
+
+
+async def _replay_done(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
+    """上一局回放看完：两边都确认后才开始本局的准备倒计时。"""
+
+    room = _current_room(hub, session)
+    if room is None:
+        return
+    outgoings = room.mark_replay_done(session.seat)
     await hub.dispatch(room, outgoings)
 
 

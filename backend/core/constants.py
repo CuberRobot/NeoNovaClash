@@ -27,8 +27,10 @@ BONUS_HP = 4
 MAX_BONUS_PER_FIGHTER = 2
 # 三局两胜
 ROUNDS_TO_WIN = 2
-# 准备阶段限时（秒）
-PREPARE_TIMEOUT_SECONDS = 60
+# 准备阶段限时（秒）。v0.9.0 由 60 上调到 90：一局要先看回放、再想怎么针对对手
+PREPARE_TIMEOUT_SECONDS = 90
+# 上一局回放播完后才开始下一局的倒计时；这是"等客户端确认看完"的兜底上限（秒）
+REPLAY_GRACE_SECONDS = 30
 # 掉线后的重连宽限时间（秒）：期间房间保持存活，对手会看到「等待重连」
 RECONNECT_GRACE_SECONDS = 90
 # 随机匹配队列上限

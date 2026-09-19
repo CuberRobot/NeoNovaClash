@@ -109,6 +109,12 @@ class RematchMessage(BaseModel):
     type: Literal["rematch"]
 
 
+class ReplayDoneMessage(BaseModel):
+    """客户端确认上一局的回放已经播完（或玩家点了跳过），可以开始本局倒计时。"""
+
+    type: Literal["replay_done"]
+
+
 class LeaveRoomMessage(BaseModel):
     type: Literal["leave_room"]
 
@@ -124,6 +130,7 @@ INBOUND_TYPES = {
     "cancel_matchmaking": CancelMatchmakingMessage,
     "reconnect": ReconnectMessage,
     "submit_plan": SubmitPlanMessage,
+    "replay_done": ReplayDoneMessage,
     "rematch": RematchMessage,
     "leave_room": LeaveRoomMessage,
     "ping": PingMessage,
@@ -136,6 +143,7 @@ InboundMessage = (
     | CancelMatchmakingMessage
     | ReconnectMessage
     | SubmitPlanMessage
+    | ReplayDoneMessage
     | RematchMessage
     | LeaveRoomMessage
     | PingMessage
