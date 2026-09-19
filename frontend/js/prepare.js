@@ -272,8 +272,10 @@
       banner.classList.add("hidden");
       return;
     }
-    const myScore = state.score[state.seat] || 0;
-    const opponentScore = state.score[1 - state.seat] || 0;
+    // 用这一局自己的比分快照：否则横幅会把"上一局的胜负"和"现在的比分"拼在一起
+    const score = result.score || state.score;
+    const myScore = score[state.seat] || 0;
+    const opponentScore = score[1 - state.seat] || 0;
     const outcome =
       result.winner_seat === null ? "平局" : result.winner_seat === state.seat ? "你赢下本局" : "本局失利";
     banner.className =

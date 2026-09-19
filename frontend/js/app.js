@@ -371,8 +371,6 @@
     const message = state.nextRound;
     if (!message) return;
     state.nextRound = null;
-    // 结果横幅留在备战页顶部，让玩家进新一局时还能看到上一局是怎么结束的
-    if (state.pendingResult) state.lastRoundResult = state.pendingResult;
     state.pendingResult = null;
     state.battle = null;
     clearTimeout(state.resultTimer);
@@ -428,6 +426,8 @@
   /* ------------------------------------------------------------ 结算 */
   function onRoundResult(message) {
     state.pendingResult = message;
+    // 记住最近一局的完整结果：顶部横幅要用它自己的比分，而不是后来变动的当前比分
+    state.lastRoundResult = message;
     state.score = message.score || state.score;
     el("battle-score").textContent = state.score.join(" : ");
     if (message.replay) toast("本局双方同归于尽，重新开一局");
