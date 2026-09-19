@@ -137,9 +137,15 @@
               <h2>出击阵容</h2>
               <div class="panel-actions">
                 <button id="btn-review" class="ghost small hidden" type="button">上一局战报</button>
+                <button id="btn-undo" class="ghost small" type="button" disabled>撤销</button>
                 <button id="btn-clear" class="ghost small" type="button">清空</button>
               </div>
             </header>
+            <div class="token-bar">
+              <span class="token-label">增益筹码</span>
+              <div id="bonus-tokens" class="tokens"></div>
+              <span class="hint">先点筹码，再点出击位；点位上的标记可以取消</span>
+            </div>
             <ol id="slots" class="slots"></ol>
             <p class="hint">
               剩余增益次数：<b id="bonus-left">4</b>（每个出击位最多 2 次）
@@ -148,12 +154,16 @@
 
             <fieldset class="strategy">
               <legend>攻击策略</legend>
-              <div id="strategy-options" class="strategy-options"></div>
+              <div id="strategy-options" class="strategy-cards"></div>
+              <p id="strategy-detail" class="hint"></p>
               <label id="tag-picker" class="field hidden">
                 <span>优先攻击的标签</span>
                 <select id="select-tag"></select>
               </label>
             </fieldset>
+
+            <div class="metrics" id="metrics"></div>
+            <ul class="checklist" id="checklist"></ul>
 
             <button id="btn-submit" class="primary wide" type="button" disabled>提交方案</button>
             <p id="submit-hint" class="hint"></p>

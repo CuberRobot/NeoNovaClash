@@ -746,6 +746,132 @@ button.tag-badge {
   margin-bottom: 8px;
 }
 
+.token-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.token-label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.tokens {
+  display: flex;
+  gap: 8px;
+}
+
+.token {
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.token.is-armed {
+  border-color: var(--accent-2);
+  background: rgba(103, 232, 249, 0.18);
+  box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.2);
+}
+
+.strategy-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.strategy-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.strategy-card input {
+  width: auto;
+}
+
+.strategy-card.is-active {
+  border-color: var(--accent-2);
+  background: rgba(103, 232, 249, 0.12);
+}
+
+.metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.metrics strong {
+  color: var(--text);
+}
+
+.metrics .metric-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.metrics .initiative-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+}
+
+.checklist {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.checklist li::before {
+  content: "○ ";
+}
+
+.checklist li.is-done {
+  color: var(--success);
+}
+
+.checklist li.is-done::before {
+  content: "✓ ";
+}
+
+.slot.is-swap-source {
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.25);
+}
+
+.slot.is-drop-target {
+  border-color: rgba(103, 232, 249, 0.5);
+}
+
+.slot.is-armed-target {
+  border-color: rgba(124, 92, 255, 0.6);
+  background: rgba(124, 92, 255, 0.08);
+}
+
 .strategy-options label {
   display: flex;
   align-items: center;

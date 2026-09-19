@@ -55,6 +55,9 @@
     opponentDisconnected: false,
     lobbyMode: "standard",     // 大厅里选的模式（只影响自己创建房间 / 随机匹配）
     roomMode: null,            // 当前所在房间的模式（由服务端下发，房间说了算）
+    undoStack: [],
+    armedBonus: null,          // 已经拿起、等待放到出击位上的增益筹码
+    swapFrom: null,            // 交换位次时选中的源位
     modes: [],
     randomTags: false,
   };
@@ -624,6 +627,9 @@
     state.selection = [];
     state.bonuses = [];
     state.strategy = { kind: "lowest_hp", tag: null };
+    state.swapFrom = null;
+    state.armedBonus = null;
+    resetUndo();
     state.submitted = false;
     state.opponentReady = false;
 
@@ -662,6 +668,9 @@
     renderPool();
     renderSlots();
     renderStrategy();
+    renderTokens();
+    renderMetrics();
+    renderChecklist();
     renderBanner();
     renderPrepareStatus();
     updateSubmitState();
@@ -766,6 +775,7 @@
   function toggleCharacter(charId) {
     const index = state.selection.indexOf(charId);
     if (index >= 0) {
+      pushUndo();
       state.selection.splice(index, 1);
       renderPool();
       renderSlots();
@@ -781,10 +791,50 @@
       toast(character.name + " 只能放在第一个出击位，请先清空阵容", true);
       return;
     }
+    pushUndo();
     state.selection.push(charId);
     renderPool();
     renderSlots();
     updateSubmitState();
+  }
+
+  /* ------------------------------------------------------------ 撤销 */
+  function snapshotPlan() {
+    return {
+      selection: state.selection.slice(),
+      bonuses: state.bonuses.map((bonus) => ({ slot: bonus.slot, kind: bonus.kind })),
+      strategy: { kind: state.strategy.kind, tag: state.strategy.tag },
+    };
+  }
+
+  function pushUndo() {
+    state.undoStack.push(snapshotPlan());
+    if (state.undoStack.length > 30) state.undoStack.shift();
+    el("btn-undo").disabled = false;
+  }
+
+  function undo() {
+    const previous = state.undoStack.pop();
+    if (!previous) {
+      toast("没有可以撤销的操作");
+      return;
+    }
+    state.selection = previous.selection;
+    state.bonuses = previous.bonuses;
+    state.strategy = previous.strategy;
+    state.swapFrom = null;
+    state.armedBonus = null;
+    el("btn-undo").disabled = state.undoStack.length === 0;
+    renderPool();
+    renderSlots();
+    renderStrategy();
+    renderTokens();
+    updateSubmitState();
+  }
+
+  function resetUndo() {
+    state.undoStack = [];
+    el("btn-undo").disabled = true;
   }
 
   function bonusCountForSlot(slot) {
@@ -809,13 +859,25 @@
       const charId = state.selection[index];
       const character = charId ? state.pool.find((c) => c.id === charId) : null;
       const li = document.createElement("li");
-      li.className = "slot" + (character ? " is-filled" : "");
+      const isSwapSource = state.swapFrom === index;
+      li.className =
+        "slot" +
+        (character ? " is-filled" : "") +
+        (isSwapSource ? " is-swap-source" : "") +
+        (state.swapFrom !== null && !isSwapSource ? " is-drop-target" : "") +
+        (state.armedBonus && character ? " is-armed-target" : "");
+
+      // 点击出击位：装着筹码时是「放置增益」，否则是「选择交换位 / 完成交换」
+      li.addEventListener("click", (event) => {
+        if (event.target.closest("button") || event.target.closest(".bonus-chip")) return;
+        onSlotClick(index);
+      });
 
       const head = document.createElement("div");
       head.className = "slot-head";
       const label = document.createElement("span");
       label.className = "slot-index";
-      label.textContent = "第 " + (index + 1) + " 位";
+      label.textContent = "第 " + (index + 1) + " 位" + (isSwapSource ? "（点另一个位交换）" : "");
       head.appendChild(label);
       if (character) {
         const stats = slotStats(character, index + 1);
@@ -843,9 +905,12 @@
         chip.className = "bonus-chip";
         chip.textContent = (bonus.kind === "atk" ? "攻击 +2" : "生命 +4") + " ×";
         chip.title = "点击移除这次增益";
-        chip.addEventListener("click", () => {
+        chip.addEventListener("click", (event) => {
+          event.stopPropagation();
+          pushUndo();
           state.bonuses.splice(bonusIndex, 1);
           renderSlots();
+          renderTokens();
           updateSubmitState();
         });
         chips.appendChild(chip);
@@ -854,20 +919,64 @@
 
       const actions = document.createElement("div");
       actions.className = "slot-actions";
-      actions.appendChild(
-        button("+ 攻击", "ghost small", () => addBonus(index + 1, "atk"), state.bonusPerRound <= state.bonuses.length || bonusCountForSlot(index + 1) >= state.maxBonusPerFighter)
-      );
-      actions.appendChild(
-        button("+ 生命", "ghost small", () => addBonus(index + 1, "hp"), state.bonusPerRound <= state.bonuses.length || bonusCountForSlot(index + 1) >= state.maxBonusPerFighter)
-      );
-      actions.appendChild(button("上移", "ghost small", () => moveSlot(index, -1), index === 0));
-      actions.appendChild(button("下移", "ghost small", () => moveSlot(index, 1), index === state.selection.length - 1));
+      actions.appendChild(button("交换位次", "ghost small", () => startSwap(index)));
       actions.appendChild(button("移除", "ghost small", () => toggleCharacter(character.id)));
       li.appendChild(actions);
 
       container.appendChild(li);
     }
     el("bonus-left").textContent = String(Math.max(0, state.bonusPerRound - state.bonuses.length));
+  }
+
+  function onSlotClick(index) {
+    const character = state.pool.find((c) => c.id === state.selection[index]);
+    if (!character) {
+      if (state.swapFrom !== null) {
+        state.swapFrom = null;
+        renderSlots();
+        return;
+      }
+      if (state.armedBonus) {
+        toast("先选好角色再放增益");
+      }
+      return;
+    }
+    // 交换进行中时，点出击位是「完成交换」，优先于手上的增益筹码
+    if (state.swapFrom !== null) {
+      startSwap(index);
+      return;
+    }
+    if (state.armedBonus) {
+      const kind = state.armedBonus;
+      if (addBonus(index + 1, kind)) {
+        if (state.bonuses.length >= state.bonusPerRound) state.armedBonus = null;
+        renderTokens();
+        renderSlots();
+      }
+      return;
+    }
+    startSwap(index);
+  }
+
+  /** 交换位次：点"交换位次"按钮或点空手状态下的出击位都会走这里。 */
+  function startSwap(index) {
+    if (!state.selection[index]) {
+      state.swapFrom = null;
+      renderSlots();
+      return;
+    }
+    if (state.swapFrom === null) {
+      state.swapFrom = index;
+      renderSlots();
+      return;
+    }
+    if (state.swapFrom === index) {
+      state.swapFrom = null;
+      renderSlots();
+      return;
+    }
+    swapSlots(state.swapFrom, index);
+    state.swapFrom = null;
   }
 
   function button(label, className, onClick, disabled) {
@@ -883,32 +992,33 @@
   function addBonus(slot, kind) {
     if (state.bonuses.length >= state.bonusPerRound) {
       toast("增益次数已经用完（共 " + state.bonusPerRound + " 次）", true);
-      return;
+      return false;
     }
     if (bonusCountForSlot(slot) >= state.maxBonusPerFighter) {
       toast("每个出击位最多获得 " + state.maxBonusPerFighter + " 次增益", true);
-      return;
+      return false;
     }
+    pushUndo();
     state.bonuses.push({ slot: slot, kind: kind });
     renderSlots();
     updateSubmitState();
+    if (state.bonuses.length >= state.bonusPerRound) state.armedBonus = null;
+    renderTokens();
+    return true;
   }
 
-  function moveSlot(index, direction) {
-    const target = index + direction;
-    if (target < 0 || target >= state.selection.length) return;
+  function swapSlots(index, target) {
     const moved = state.selection[index];
     const replaced = state.selection[target];
     const movedChar = state.pool.find((c) => c.id === moved);
     const targetChar = state.pool.find((c) => c.id === replaced);
-    if (target === 0 && (movedChar.place_first || targetChar.place_first) && !movedChar.place_first) {
-      toast(movedChar.name + " 不能放在第一位，" + targetChar.name + " 只能放在第一位", true);
+    // 自爆步兵这类「只能放在首位」的角色不参与交换：任何交换都会让它离开首位
+    const fixed = [movedChar, targetChar].find((character) => character && character.place_first);
+    if (fixed) {
+      toast(`${fixed.name} 只能待在第一个出击位，不能交换`, true);
       return;
     }
-    if (index === 0 && targetChar.place_first && !movedChar.place_first) {
-      toast(targetChar.name + " 只能放在第一位", true);
-      return;
-    }
+    pushUndo();
     state.selection[index] = replaced;
     state.selection[target] = moved;
     renderPool();
@@ -916,10 +1026,14 @@
   }
 
   function clearSelection() {
+    pushUndo();
     state.selection = [];
     state.bonuses = [];
+    state.swapFrom = null;
+    state.armedBonus = null;
     renderPool();
     renderSlots();
+    renderTokens();
     updateSubmitState();
   }
 
@@ -928,12 +1042,14 @@
     container.innerHTML = "";
     state.strategies.forEach((strategy) => {
       const label = document.createElement("label");
+      label.className = "strategy-card" + (state.strategy.kind === strategy.kind ? " is-active" : "");
       const input = document.createElement("input");
       input.type = "radio";
       input.name = "strategy";
       input.value = strategy.kind;
       input.checked = state.strategy.kind === strategy.kind;
       input.addEventListener("change", () => {
+        pushUndo();
         state.strategy.kind = strategy.kind;
         if (strategy.kind !== "tag_priority") state.strategy.tag = null;
         renderStrategy();
@@ -946,6 +1062,12 @@
       container.appendChild(label);
     });
 
+    const detail = el("strategy-detail");
+    const current = state.strategies.find((item) => item.kind === state.strategy.kind);
+    detail.textContent = current
+      ? current.label + (current.need_tag ? "：需要再选一个标签" : "")
+      : "";
+
     const picker = el("tag-picker");
     const isTagStrategy = state.strategy.kind === "tag_priority";
     picker.classList.toggle("hidden", !isTagStrategy);
@@ -953,9 +1075,11 @@
       const select = el("select-tag");
       const tags = [];
       state.pool.forEach((character) => {
-        if (character.tag !== "none" && !tags.some((t) => t.key === character.tag)) {
-          tags.push({ key: character.tag, name: character.tag_name });
-        }
+        (character.tags || []).forEach((tag, index) => {
+          if (tag && tag !== "none" && !tags.some((item) => item.key === tag)) {
+            tags.push({ key: tag, name: (character.tag_names || [])[index] || tag });
+          }
+        });
       });
       const previous = state.strategy.tag;
       select.innerHTML = "";
@@ -992,10 +1116,118 @@
     return issues;
   }
 
+  /* ------------------------------------------------------------ 增益筹码 */
+  function renderTokens() {
+    const box = el("bonus-tokens");
+    box.innerHTML = "";
+    const remaining = state.bonusPerRound - state.bonuses.length;
+    const options = [
+      { kind: "atk", label: "攻击 +2" },
+      { kind: "hp", label: "生命 +4" },
+    ];
+    options.forEach((option) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "token" + (state.armedBonus === option.kind ? " is-armed" : "");
+      chip.textContent = option.label;
+      chip.disabled = remaining <= 0;
+      chip.addEventListener("click", () => {
+        if (remaining <= 0) {
+          toast("增益次数已经用完（共 " + state.bonusPerRound + " 次）", true);
+          return;
+        }
+        state.armedBonus = state.armedBonus === option.kind ? null : option.kind;
+        renderTokens();
+        renderSlots();
+        toast(state.armedBonus ? `已选中「${option.label}」，点一个出击位放置` : "已取消选择");
+      });
+      box.appendChild(chip);
+    });
+  }
+
+  /* ------------------------------------------------------------ 阵容指标 */
+  function renderMetrics() {
+    const box = el("metrics");
+    const picked = state.selection
+      .map((charId) => state.pool.find((character) => character.id === charId))
+      .filter(Boolean);
+    if (!picked.length) {
+      box.innerHTML = `<span>选好角色后，这里会显示这套阵容的先手值、总攻击/总生命与标签构成。</span>`;
+      return;
+    }
+
+    const initiative = picked.reduce((sum, character) => sum + character.initiative, 0);
+    const complete = picked.length === state.teamSize;
+    const initiativeValues = state.pool.map((character) => character.initiative).sort((a, b) => a - b);
+    const lowestPossible = initiativeValues
+      .slice(0, state.teamSize)
+      .reduce((sum, value) => sum + value, 0);
+    // 只有选满人之后，"本池最低可能" 才有对比意义
+    const tier = !complete
+      ? `还差 ${state.teamSize - picked.length} 名，选满后可与本池最低可能对比`
+      : initiative <= lowestPossible + 2
+        ? "偏低（较容易抢到先手）"
+        : initiative <= lowestPossible + 6
+          ? "中等"
+          : "偏高（较难抢到先手）";
+
+    let atk = 0;
+    let hp = 0;
+    const tagCounter = new Map();
+    state.selection.forEach((charId, index) => {
+      const character = state.pool.find((item) => item.id === charId);
+      if (!character) return;
+      const stats = slotStats(character, index + 1);
+      atk += stats.atk;
+      hp += stats.hp;
+      (character.tags || []).forEach((tag, tagIndex) => {
+        if (!tag || tag === "none") return;
+        const name = (character.tag_names || [])[tagIndex] || tag;
+        tagCounter.set(name, (tagCounter.get(name) || 0) + 1);
+      });
+    });
+    const tags = [...tagCounter.entries()].map(([name, count]) => `${name} ×${count}`).join("　") || "无标签";
+
+    box.innerHTML = `
+      <div class="metric-row">
+        <span>先手值 <strong>${initiative}</strong>${complete ? `（本池最低可能 ${lowestPossible}）` : ""}</span>
+        <span class="initiative-tag">${tier}</span>
+      </div>
+      <div class="metric-row">
+        <span>总攻击 <strong>${atk}</strong></span>
+        <span>总生命 <strong>${hp}</strong></span>
+        <span>出战 ${picked.length}/${state.teamSize}</span>
+      </div>
+      <div class="metric-row"><span>标签：${tags}</span></div>
+    `;
+  }
+
+  /* ------------------------------------------------------------ 提交检查清单 */
+  function renderChecklist() {
+    const list = el("checklist");
+    const items = [
+      { done: state.selection.length === state.teamSize, text: `选满 ${state.teamSize} 名角色（${state.selection.length}/${state.teamSize}）` },
+      { done: state.bonuses.length === state.bonusPerRound, text: `分配 ${state.bonusPerRound} 次增益（${state.bonuses.length}/${state.bonusPerRound}）` },
+      {
+        done: state.strategy.kind !== "tag_priority" || Boolean(state.strategy.tag),
+        text: "选好攻击策略" + (state.strategy.kind === "tag_priority" ? "与目标标签" : ""),
+      },
+    ];
+    list.innerHTML = "";
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      li.className = item.done ? "is-done" : "";
+      li.textContent = item.text;
+      list.appendChild(li);
+    });
+  }
+
   function updateSubmitState() {
     const issues = planIssues();
     el("btn-submit").disabled = issues.length > 0;
     el("submit-hint").textContent = issues.length ? issues.join("；") : "方案已满足全部规则，可以提交";
+    renderMetrics();
+    renderChecklist();
   }
 
   function renderPrepareStatus() {
@@ -1571,6 +1803,7 @@
     el("btn-copy").addEventListener("click", copyRoomCode);
     el("btn-copy-link").addEventListener("click", copyInviteLink);
     el("btn-review").addEventListener("click", showBattleReview);
+    el("btn-undo").addEventListener("click", undo);
     el("btn-leave-waiting").addEventListener("click", () => {
       send({ type: "leave_room" });
       resetToLobby("已离开房间");
@@ -1589,12 +1822,23 @@
 
     // 回车提交：在备战页且方案合法时，直接触发提交（输入框/下拉里不拦截）
     document.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
       const tag = (event.target && event.target.tagName) || "";
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       const inPrepare = document.querySelector("#screen-prepare.is-active");
+      if (!inPrepare) return;
+      if (event.key === "Backspace" || event.key === "Delete") {
+        event.preventDefault();
+        undo();
+        return;
+      }
+      if (/^[1-9]$/.test(event.key)) {
+        const card = state.pool[Number(event.key) - 1];
+        if (card) toggleCharacter(card.id);
+        return;
+      }
+      if (event.key !== "Enter") return;
       const submit = el("btn-submit");
-      if (inPrepare && submit && !submit.disabled) submit.click();
+      if (submit && !submit.disabled) submit.click();
     });
 
     document.addEventListener("visibilitychange", () => {

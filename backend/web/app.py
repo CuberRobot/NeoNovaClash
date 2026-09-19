@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 from pathlib import Path
 
@@ -19,9 +20,26 @@ from .websocket import handle_connection
 logger = logging.getLogger("neonovaclash.app")
 
 
+def frontend_fingerprint(frontend_dir: Path) -> str:
+    """前端资源的内容指纹：文件一改指纹就变，浏览器与 CDN 就不会继续用旧 JS/CSS。
+
+    比"发布前记得手动改版本号"可靠得多 —— 忘记改版本号是这类问题的常见来源。
+    """
+
+    digest = hashlib.sha256()
+    if not frontend_dir.exists():
+        return "dev"
+    for path in sorted(frontend_dir.rglob("*")):
+        if path.is_file() and path.suffix in {".js", ".css", ".html"}:
+            digest.update(path.name.encode("utf-8"))
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:10]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     hub = GameHub(settings)
+    asset_version = frontend_fingerprint(settings.frontend_dir)
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -105,7 +123,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not index_file.exists():
             return JSONResponse({"message": "前端资源缺失", "version": __version__}, status_code=500)
         # 注入资源版本号：静态资源的 URL 随版本变化，避免浏览器与 CDN 继续使用旧的 JS/CSS
-        html = index_file.read_text(encoding="utf-8").replace("{{ASSET_VERSION}}", __version__)
+        html = index_file.read_text(encoding="utf-8").replace("{{ASSET_VERSION}}", asset_version)
         return HTMLResponse(html)
 
     if frontend_dir.exists():
