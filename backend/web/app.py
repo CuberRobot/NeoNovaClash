@@ -6,6 +6,8 @@ import asyncio
 import contextlib
 import hashlib
 import logging
+import time
+from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket
@@ -36,10 +38,32 @@ def frontend_fingerprint(frontend_dir: Path) -> str:
     return digest.hexdigest()[:10]
 
 
+_FINGERPRINT_TTL_SECONDS = 2.0
+_fingerprint_cache: dict[str, tuple[float, str]] = {}
+
+
+def cached_frontend_fingerprint(frontend_dir: Path) -> str:
+    """带 2 秒缓存的指纹。
+
+    开发时改完前端直接刷新就能拿到新资源，不用重启服务；
+    生产环境每个请求最多多一次目录遍历，代价可以忽略。
+    """
+
+    key = str(frontend_dir)
+    now = time.monotonic()
+    hit = _fingerprint_cache.get(key)
+    if hit is not None and now - hit[0] < _FINGERPRINT_TTL_SECONDS:
+        return hit[1]
+    value = frontend_fingerprint(frontend_dir)
+    _fingerprint_cache[key] = (now, value)
+    return value
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     hub = GameHub(settings)
-    asset_version = frontend_fingerprint(settings.frontend_dir)
+    # 不再在启动时算死：前端一改，两秒内刷新就能拿到新资源（见 cached_frontend_fingerprint）
+    asset_version = partial(cached_frontend_fingerprint, settings.frontend_dir)
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -123,7 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not index_file.exists():
             return JSONResponse({"message": "前端资源缺失", "version": __version__}, status_code=500)
         # 注入资源版本号：静态资源的 URL 随版本变化，避免浏览器与 CDN 继续使用旧的 JS/CSS
-        html = index_file.read_text(encoding="utf-8").replace("{{ASSET_VERSION}}", asset_version)
+        html = index_file.read_text(encoding="utf-8").replace("{{ASSET_VERSION}}", asset_version())
         return HTMLResponse(html)
 
     if frontend_dir.exists():
