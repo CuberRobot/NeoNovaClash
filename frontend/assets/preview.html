@@ -77,6 +77,8 @@
     <h2>12 种标签徽记</h2>
     <div class="tags-grid" id="tags"></div>
 
+    <p class="hint" id="footer" style="margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--border)"></p>
+
     <script>
       const file = (id) => `pieces/piece-${String(id).padStart(2, "0")}.svg`;
       const tagFile = (key) => `tags/tag-${key}.svg`;
@@ -173,6 +175,14 @@
         renderCards(rules);
         renderTags(rules);
       });
+
+      fetch("/api/version")
+        .then((response) => response.json())
+        .then((info) => {
+          const today = new Date().toISOString().slice(0, 10);
+          document.getElementById("footer").textContent =
+            `${info.name} ${info.version} · 素材由 tools/art/generate_assets.py 生成 · ${today} · github.com/CuberRobot/NeoNovaClash`;
+        });
     </script>
   </body>
 </html>
