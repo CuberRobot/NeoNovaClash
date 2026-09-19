@@ -179,7 +179,7 @@
         break;
       case "matchmaking_cancelled":
         el("matching").classList.add("hidden");
-        toast("已取消匹配");
+        toast(message.reason || "已取消匹配");
         break;
       case "opponent_disconnected":
         state.opponentDisconnected = true;

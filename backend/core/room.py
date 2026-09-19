@@ -163,6 +163,29 @@ class Room:
     def touch(self) -> None:
         self.last_activity = time.monotonic()
 
+    def diagnostic_payload(self) -> dict:
+        """运维诊断用的房间快照：只有连接与提交状态，不含昵称、token 或任何私有信息。"""
+
+        now = time.monotonic()
+        return {
+            "room_code": self.code,
+            "phase": self.phase.value,
+            "round_index": self.round_index,
+            "score": self.scores(),
+            "mode": self.mode.key,
+            "idle_seconds": round(now - self.last_activity, 1),
+            "seats": [
+                {
+                    "seat": player.seat,
+                    "connected": player.connected,
+                    "submitted": player.submitted,
+                    "auto_submitted": player.auto_submitted,
+                    "replay_done": player.replay_done,
+                }
+                for player in self.players
+            ],
+        }
+
     # ------------------------------------------------------------ 加入与退出
     def join(self, name: str) -> tuple[Player, list[Outgoing]]:
         if self.is_closed:

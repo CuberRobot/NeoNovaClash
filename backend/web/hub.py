@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass
 
 from fastapi import WebSocket
+from starlette.websockets import WebSocketState
 
 from ..config import Settings
 from ..core import constants as C
@@ -23,6 +24,20 @@ from ..core.room import Outgoing, Phase, Room, RoomError
 logger = logging.getLogger("neonovaclash.hub")
 
 ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # 去掉易混淆的 I/O/0/1
+
+
+def is_socket_alive(socket: WebSocket) -> bool:
+    """这条 WebSocket 是否还处于已连接状态。
+
+    浏览器被直接关掉、电脑睡眠、网络断开时，服务端的处理协程可能还阻塞在 receive 上，
+    拿不到断开事件；这时 client_state 仍然会是 CONNECTED（要等 uvicorn 的心跳超时才会翻），
+    所以它只能当作"第一道过滤"，后面还有队列 TTL 兜底。
+    """
+
+    state = getattr(socket, "client_state", None)
+    if state is None:  # 拿不到状态就不拦，交给 TTL
+        return True
+    return state is WebSocketState.CONNECTED
 
 
 @dataclass
@@ -199,7 +214,12 @@ class GameHub:
         return len(self.queue)
 
     def take_opponent(self, mode_key: str = modes.DEFAULT_MODE_KEY) -> QueuedPlayer | None:
-        """取出仍在等待、且模式相同的玩家（不同模式之间不会互相匹配）。"""
+        """取出仍在等待、且模式相同的玩家（不同模式之间不会互相匹配）。
+
+        这里必须确认对方**连接还活着**：浏览器被直接关掉、电脑睡眠、网络断开时，
+        服务端可能还没收到断开事件，队列里就会留下一个"幽灵"。
+        如果把它当成对手，玩家会瞬间匹配成功、然后对着一个永远不动的人打完整场。
+        """
 
         while self.queue:
             index = next((i for i, item in enumerate(self.queue) if item.mode_key == mode_key), None)
@@ -208,16 +228,51 @@ class GameHub:
             queued = self.queue.pop(index)
             if queued.session.in_room:
                 continue
+            if not is_socket_alive(queued.websocket):
+                logger.info("匹配队列里丢掉一条已断开的连接（%s）", queued.name)
+                continue
             return queued
         return None
 
+    def reap_stale_queue(self, now: float | None = None) -> list[QueuedPlayer]:
+        """清掉排队太久或连接已死的队列项，避免它们继续被配对给真人。"""
+
+        now = time.monotonic() if now is None else now
+        dropped: list[QueuedPlayer] = []
+        keep: list[QueuedPlayer] = []
+        for item in self.queue:
+            expired = now - item.since > C.MATCHMAKING_QUEUE_TTL_SECONDS
+            if expired or not is_socket_alive(item.websocket):
+                dropped.append(item)
+            else:
+                keep.append(item)
+        self.queue = keep
+        return dropped
+
     # ------------------------------------------------------------ 后台任务
+    async def _notify_queue_dropped(self, queued: QueuedPlayer) -> None:
+        """队列项被清掉时尽量告诉本人（连不上就算了）。"""
+
+        if not is_socket_alive(queued.websocket):
+            logger.info("清理匹配队列中的失效连接：%s", queued.name)
+            return
+        try:
+            await queued.websocket.send_json(
+                {"type": "matchmaking_cancelled", "reason": "排队超时，已自动取消匹配"}
+            )
+        except Exception:  # pragma: no cover - 连接刚好断掉
+            logger.debug("通知匹配超时失败", exc_info=True)
+        logger.info("匹配排队超时，已移除：%s", queued.name)
+
     async def ticker(self, interval: float = 1.0) -> None:
         """每秒推进一次：超时自动提交 + 回收空闲房间。"""
 
         while True:
             await asyncio.sleep(interval)
             now = time.monotonic()
+            for dropped in self.reap_stale_queue(now):
+                # 还在排队但连接已死 / 排太久的，直接清掉，别再配对给真人
+                await self._notify_queue_dropped(dropped)
             for room in list(self.rooms.values()):
                 try:
                     outgoings = room.tick(now)

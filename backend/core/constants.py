@@ -37,6 +37,8 @@ CARD_DRAFT_SIZE = 3
 RECONNECT_GRACE_SECONDS = 90
 # 随机匹配队列上限
 MATCHMAKING_QUEUE_LIMIT = 100
+# 匹配队列里排队超过这么久还没配到人，就视为掉线/放弃并清掉（秒）
+MATCHMAKING_QUEUE_TTL_SECONDS = 600
 # 单局最大回合数，超过后按剩余血量判定，避免出现无法结束的对局
 MAX_ROUNDS_PER_DUEL = 50
 # 战斗日志上限，防御性上限，避免异常情况下事件列表无限增长

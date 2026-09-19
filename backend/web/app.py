@@ -119,6 +119,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 players=hub.active_players(),
                 uptime=hub.uptime(),
             ),
+            # 诊断用：匹配队列长度 + 每个房间的座位状态（只看连接/提交，不含昵称与 token）
+            "queue": hub.queue_size(),
+            "room_list": [room.diagnostic_payload() for room in hub.rooms.values()],
             "totals": {
                 "rooms_created": hub.stats.created,
                 "rooms_closed": hub.stats.closed,
