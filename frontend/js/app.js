@@ -98,6 +98,7 @@
     state.resultTimer = null;
     NC.hideOverlay();
     el("matching").classList.add("hidden");
+    unlockLobbyActions();
     el("timer").classList.remove("is-urgent");
     show("screen-lobby");
     if (message) toast(message);
@@ -168,6 +169,7 @@
         el("brand-version").textContent = message.server + " v" + message.version;
         break;
       case "room_joined":
+        unlockLobbyActions();
         onRoomJoined(message);
         break;
       case "state_sync":
@@ -179,6 +181,7 @@
         break;
       case "matchmaking_cancelled":
         el("matching").classList.add("hidden");
+        unlockLobbyActions();
         toast(message.reason || "已取消匹配");
         break;
       case "opponent_disconnected":
@@ -247,6 +250,7 @@
         resetToLobby("已离开房间");
         break;
       case "error":
+        unlockLobbyActions();
         toast(message.message, true);
         if (message.fatal) resetToLobby();
         break;
@@ -684,6 +688,30 @@
   }
 
   /* ------------------------------------------------------------ 事件绑定 */
+  // 大厅三个按钮的"防连点"锁：一次只允许发出一个进房/匹配请求。
+  // 连点两次曾经会把自己配给自己（服务端也已修，这里是前端的第一道防线）。
+  const LOBBY_ACTIONS = ["btn-create", "btn-random", "btn-join"];
+  let lobbyLockTimer = null;
+
+  function lockLobbyActions() {
+    LOBBY_ACTIONS.forEach((id) => {
+      const node = el(id);
+      if (node) node.disabled = true;
+    });
+    clearTimeout(lobbyLockTimer);
+    // 网络异常时不要把按钮永久锁死
+    lobbyLockTimer = setTimeout(unlockLobbyActions, 6000);
+  }
+
+  function unlockLobbyActions() {
+    clearTimeout(lobbyLockTimer);
+    lobbyLockTimer = null;
+    LOBBY_ACTIONS.forEach((id) => {
+      const node = el(id);
+      if (node) node.disabled = false;
+    });
+  }
+
   function requireName() {
     const name = currentNickname();
     if (!name) {
@@ -699,12 +727,16 @@
   function bindEvents() {
     el("btn-create").addEventListener("click", () => {
       const name = requireName();
-      if (name) send({ type: "create_room", name: name, mode: state.lobbyMode });
+      if (!name) return;
+      lockLobbyActions();
+      if (!send({ type: "create_room", name: name, mode: state.lobbyMode })) unlockLobbyActions();
     });
 
     el("btn-random").addEventListener("click", () => {
       const name = requireName();
-      if (name) send({ type: "join_random", name: name, mode: state.lobbyMode });
+      if (!name) return;
+      lockLobbyActions();
+      if (!send({ type: "join_random", name: name, mode: state.lobbyMode })) unlockLobbyActions();
     });
 
     el("btn-cancel-match").addEventListener("click", () => send({ type: "cancel_matchmaking" }));
@@ -718,6 +750,7 @@
         el("input-code").focus();
         return;
       }
+      lockLobbyActions();
       send({ type: "join_room", name: name, room_code: code });
     });
 

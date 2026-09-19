@@ -93,6 +93,45 @@ def test_join_random_ignores_ghost_and_queues_the_player():
             assert message["queue_size"] == 1
 
 
+def test_clicking_random_twice_does_not_match_with_yourself():
+    """连点两次随机匹配：绝不能把自己排队的那条记录当成对手。
+
+    这是线上真实出现过的 bug：第二次 join_random 会把自己第一次的队列记录
+    弹出来当对手，于是同一条连接占了两个座位，玩家瞬间"匹配成功"、
+    然后对着一个永远不动的自己打完一场。
+    """
+
+    app = create_app(Settings(prepare_timeout=5))
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "hello"
+            ws.send_json({"type": "join_random", "name": "手速很快", "mode": "standard"})
+            first = ws.receive_json()
+            assert first["type"] == "matchmaking_waiting"
+
+            ws.send_json({"type": "join_random", "name": "手速很快", "mode": "standard"})
+            second = ws.receive_json()
+
+            assert second["type"] == "matchmaking_waiting"     # 仍然是排队中，不是开局
+            assert second["queue_size"] == 1                   # 队列里只有自己一条
+            assert len(app.state.hub.rooms) == 0               # 没有创建任何房间
+
+
+def test_take_opponent_can_exclude_your_own_session():
+    """就算调用方忘了先出队，也不允许把自己配给自己。"""
+
+    app = create_app(Settings(prepare_timeout=5))
+    hub = app.state.hub
+    mine = make_queued("我", WebSocketState.CONNECTED)
+    hub.queue.append(mine)
+
+    assert hub.take_opponent("standard", exclude=mine.session) is None
+
+    other = make_queued("别人", WebSocketState.CONNECTED)
+    hub.queue.append(other)
+    assert hub.take_opponent("standard", exclude=mine.session) is other
+
+
 def test_health_exposes_queue_and_room_diagnostics():
     app = create_app(Settings(prepare_timeout=5))
     with TestClient(app) as client:

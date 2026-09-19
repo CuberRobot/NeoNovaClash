@@ -2,6 +2,33 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)：`主版本.次版本.修订号`。
 
+## [v0.11.2] - 2026-09-19
+
+修复**连点两次「随机匹配」会自己匹配自己**的问题（线上实测复现）。
+
+### 根因
+
+`_join_random` 少了一步"先把自己从队列里摘掉"：
+
+1. 第一次点击：队列空 → 把自己放进队列 → 回「正在寻找对手」；
+2. 第二次点击：`take_opponent()` 把**自己第一次排队的那条记录**当成对手弹了出来 →
+   用同一条 WebSocket 占了两个座位 → 玩家瞬间"匹配成功"，然后对着一个永远不动的自己打完整场。
+
+`create_room` / `join_room` 一直都有 `hub.dequeue(session)`，只有随机匹配漏了——所以这不是"并发锁"问题，
+而是"进队列前没清理自己"的状态问题：同一条连接的消息本来就是串行处理的（asyncio 单线程 + 顺序 await）。
+
+### 修复
+
+- `_join_random` 在取对手前先 `hub.dequeue(session)`；
+- `take_opponent(mode_key, exclude=…)` 增加"排除自己"参数：即使调用方忘了出队，也绝不允许同一条连接占两个座位；
+- 前端给大厅三个按钮加了**防连点锁**：点一次后立刻禁用，收到 `room_joined` / `matchmaking_cancelled` /
+  错误回包 / 回到大厅时解锁，另外 6 秒兜底解锁，避免网络异常时按钮被永久锁死。
+
+### 测试
+
+- 新增两项：`test_clicking_random_twice_does_not_match_with_yourself`（连点两次必须仍是排队、且不创建房间）、
+  `test_take_opponent_can_exclude_your_own_session`；测试总数 115 → 117。
+
 ## [v0.11.1] - 2026-09-19
 
 修复"随机匹配总是能秒配到"的问题：**队列里的死连接会被当成对手**。

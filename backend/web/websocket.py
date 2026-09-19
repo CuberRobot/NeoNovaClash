@@ -121,16 +121,23 @@ async def _join_room(websocket: WebSocket, hub: GameHub, session: Session, messa
 
 
 async def _join_random(websocket: WebSocket, hub: GameHub, session: Session, message) -> None:
-    """随机匹配：队列里有人在等就直接配对，否则自己进队列。"""
+    """随机匹配：队列里有人在等就直接配对，否则自己进队列。
+
+    注意：**必须先把自己从队列里摘掉**。否则连点两次匹配时，第二次会把自己
+    上一次排队的那条记录当成对手弹出来，用同一条连接占两个座位——
+    玩家会瞬间"匹配成功"，然后对着一个永远不动的自己打完整场。
+    （`create_room` / `join_room` 一直都有这一步，只有随机匹配漏了。）
+    """
 
     if session.in_room:
         await hub.leave(session, reason="重新匹配")
+    hub.dequeue(session)
     try:
         mode = modes.get_mode(message.mode)
     except modes.ModeError as exc:
         await websocket.send_json(protocol.error(str(exc), fatal=True))
         return
-    opponent = hub.take_opponent(mode.key)
+    opponent = hub.take_opponent(mode.key, exclude=session)
     if opponent is None:
         try:
             size = hub.enqueue(session, message.name, websocket, mode.key)

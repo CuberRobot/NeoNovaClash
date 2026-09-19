@@ -213,12 +213,17 @@ class GameHub:
     def queue_size(self) -> int:
         return len(self.queue)
 
-    def take_opponent(self, mode_key: str = modes.DEFAULT_MODE_KEY) -> QueuedPlayer | None:
+    def take_opponent(
+        self, mode_key: str = modes.DEFAULT_MODE_KEY, exclude: Session | None = None
+    ) -> QueuedPlayer | None:
         """取出仍在等待、且模式相同的玩家（不同模式之间不会互相匹配）。
 
         这里必须确认对方**连接还活着**：浏览器被直接关掉、电脑睡眠、网络断开时，
         服务端可能还没收到断开事件，队列里就会留下一个"幽灵"。
         如果把它当成对手，玩家会瞬间匹配成功、然后对着一个永远不动的人打完整场。
+
+        `exclude` 用来排除"自己"：即使调用方忘了先把自己出队，
+        也绝不允许同一条连接占两个座位自己跟自己打。
         """
 
         while self.queue:
@@ -226,6 +231,8 @@ class GameHub:
             if index is None:
                 return None
             queued = self.queue.pop(index)
+            if exclude is not None and queued.session is exclude:
+                continue
             if queued.session.in_room:
                 continue
             if not is_socket_alive(queued.websocket):
