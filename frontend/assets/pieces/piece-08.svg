@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="护盾部署者">
+  <!-- 护盾部署者 · 守护星域 -->
+  <polygon points="19,54 45,54 49,58 15,58" fill="#2A3350"/>
+  <polygon points="19,44 28,44 28,54 19,54" fill="#BE8E36"/>
+  <polygon points="33,44 42,44 42,54 33,54" fill="#BE8E36"/>
+  <polygon points="20,26 44,26 42,44 22,44" fill="#BE8E36"/>
+  <polygon points="21,27 33,27 33,43 23,43" fill="#F3C05E"/>
+  <polygon points="21,27 24,27 23,43 21,43" fill="#FFDE9A" opacity="0.75"/>
+  <polygon points="23,24 15,22 14,32 22,31" fill="#F3C05E"/>
+  <polygon points="41,24 49,22 50,32 42,31" fill="#F3C05E"/>
+  <polygon points="27,16 37,16 39,25 36,27 28,27 25,25" fill="#F3C05E"/>
+  <polygon points="27,19 37,19 37,22 27,22" fill="#FFF0C8" opacity="0.85"/>
+  <polygon points="27,16 30,16 28,25 26,25" fill="#FFDE9A" opacity="0.6"/>
+  <polygon points="20,30 18,30 18,42 20,42" fill="#BE8E36"/>
+  <polygon points="42,30 46,30 46,42 42,42" fill="#BE8E36"/>
+  <circle cx="49" cy="38" r="3.2" fill="#FFF0C8"/>
+  <circle cx="15" cy="40" r="3.2" fill="#FFF0C8"/>
+  <g transform="translate(23.0,39.0) rotate(-10.0)"><polygon points="-10,-13.0 10,-13.0 10,8.0 0,13.0 -10,8.0" fill="#FFF0C8"/><polygon points="-7.5,-10.5 7.5,-10.5 7.5,7.0 0,10.0 -7.5,7.0" fill="#F3C05E"/><polygon points="-7.5,-10.5 0,-10.5 0,10.0 -7.5,7.0" fill="#FFDE9A" opacity="0.55"/></g>
+</svg>

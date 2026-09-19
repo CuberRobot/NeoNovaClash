@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="毒药投手">
+  <!-- 毒药投手 · 蚀骨星域 -->
+  <polygon points="22,54 42,54 46,58 18,58" fill="#2A3350"/>
+  <polygon points="25,44 29,44 29,54 25,54" fill="#78A82E"/>
+  <polygon points="33,44 37,44 37,54 33,54" fill="#78A82E"/>
+  <polygon points="25,26 39,26 37,44 27,44" fill="#78A82E"/>
+  <polygon points="26,27 33,27 33,43 28,43" fill="#A9E34B"/>
+  <polygon points="26,27 29,27 28,43 26,43" fill="#D3F58F" opacity="0.75"/>
+  <polygon points="28,24 20,22 19,32 27,31" fill="#A9E34B"/>
+  <polygon points="36,24 44,22 45,32 37,31" fill="#A9E34B"/>
+  <polygon points="27,15 37,15 39,25 36,27 28,27 25,25" fill="#A9E34B"/>
+  <polygon points="27,18 37,18 37,21 27,21" fill="#EDFFC7" opacity="0.85"/>
+  <polygon points="27,15 30,15 28,24 26,25" fill="#D3F58F" opacity="0.6"/>
+  <polygon points="25,30 23,30 23,42 25,42" fill="#78A82E"/>
+  <polygon points="37,30 41,30 41,42 37,42" fill="#78A82E"/>
+  <circle cx="44" cy="38" r="3.2" fill="#EDFFC7"/>
+  <circle cx="20" cy="40" r="3.2" fill="#EDFFC7"/>
+  <g transform="translate(44.0,32.0) rotate(-8.0)"><polygon points="-5,-3 5,-3 6,7 -6,7" fill="#F4FFD9"/><rect x="-2" y="-10" width="4" height="7" fill="#78A82E"/><polygon points="-3,-4 3,-4 3,2 -3,2" fill="#EDFFC7" opacity="0.8"/></g>
+  <circle cx="50" cy="8" r="2.6" fill="#F4FFD9" opacity="0.55"/>
+  <circle cx="45" cy="6" r="2" fill="#F4FFD9" opacity="0.4"/>
+  <circle cx="54" cy="13" r="1.8" fill="#F4FFD9" opacity="0.35"/>
+</svg>

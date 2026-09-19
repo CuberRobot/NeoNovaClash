@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="均衡战士D">
+  <!-- 均衡战士D · 平衡星域 -->
+  <polygon points="21,54 43,54 47,58 17,58" fill="#2A3350"/>
+  <polygon points="23,44 29,44 29,54 23,54" fill="#56617C"/>
+  <polygon points="33,44 39,44 39,54 33,54" fill="#56617C"/>
+  <polygon points="23,26 41,26 39,44 25,44" fill="#56617C"/>
+  <polygon points="24,27 33,27 33,43 26,43" fill="#7C8BA8"/>
+  <polygon points="24,27 27,27 26,43 24,43" fill="#A9B6CE" opacity="0.75"/>
+  <polygon points="26,24 18,22 17,32 25,31" fill="#7C8BA8"/>
+  <polygon points="38,24 46,22 47,32 39,31" fill="#7C8BA8"/>
+  <polygon points="27,15 37,15 39,25 36,27 28,27 25,25" fill="#7C8BA8"/>
+  <polygon points="27,18 37,18 37,21 27,21" fill="#CBD6E8" opacity="0.85"/>
+  <polygon points="27,15 30,15 28,24 26,25" fill="#A9B6CE" opacity="0.6"/>
+  <polygon points="23,30 21,30 21,42 23,42" fill="#56617C"/>
+  <polygon points="39,30 43,30 43,42 39,42" fill="#56617C"/>
+  <circle cx="46" cy="38" r="3.2" fill="#CBD6E8"/>
+  <circle cx="18" cy="40" r="3.2" fill="#CBD6E8"/>
+  <g transform="translate(46.0,42.0) rotate(20.0)"><rect x="-1.8" y="-22" width="3.6" height="40" fill="#56617C"/><polygon points="-5,-22 5,-22 0,-38" fill="#CBD6E8"/><polygon points="-5,-22 0,-22 0,-34" fill="#E8F0FF" opacity="0.5"/></g>
+</svg>

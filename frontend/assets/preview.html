@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>素材预览 · NeoNovaClash</title>
+    <style>
+      :root {
+        --bg: #070b1a;
+        --panel: rgba(20, 28, 60, 0.72);
+        --border: rgba(120, 150, 255, 0.28);
+        --text: #e8ecff;
+        --dim: #98a3d0;
+        --accent: #67e8f9;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 28px clamp(16px, 4vw, 48px) 64px;
+        background: radial-gradient(circle at 20% 0%, #131a3d 0%, var(--bg) 55%, #04060f 100%);
+        color: var(--text);
+        font-family: "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+      }
+      h1 { font-size: 20px; margin: 0 0 6px; }
+      h2 { font-size: 15px; margin: 32px 0 12px; color: var(--accent); }
+      p.hint { color: var(--dim); font-size: 13px; margin: 0 0 8px; }
+      .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+      .cell {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      .cell .row { display: flex; align-items: flex-end; gap: 10px; }
+      .cell .name { font-size: 13px; font-weight: 600; }
+      .cell .meta { font-size: 11px; color: var(--dim); }
+      .tagline { display: flex; gap: 6px; align-items: center; }
+      .tagline img { width: 18px; height: 18px; }
+      .tags-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+      .tag-cell { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim); }
+      .tag-cell img { width: 26px; height: 26px; }
+      .is-desaturated { filter: grayscale(1) brightness(0.7); }
+      .card-demo { display: flex; gap: 14px; flex-wrap: wrap; }
+      .game-card {
+        width: 168px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .game-card .top { display: flex; justify-content: space-between; align-items: flex-start; }
+      .game-card .piece { width: 64px; height: 64px; }
+      .game-card .stats { font-size: 12px; color: var(--dim); display: flex; gap: 10px; }
+      .game-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.25); }
+    </style>
+  </head>
+  <body>
+    <h1>素材预览：角色棋子与标签徽记</h1>
+    <p class="hint">
+      这页只是预览工具，不参与游戏。棋子由 <code>python -m tools.art.generate_assets</code> 生成，
+      改脚本重跑即可整套更新。
+    </p>
+
+    <h2>20 名角色（32 / 48 / 96 px 三种尺寸）</h2>
+    <div class="grid" id="pieces"></div>
+
+    <h2>卡牌预览（棋子 + 数值 + 标签徽记）</h2>
+    <div class="card-demo" id="cards"></div>
+
+    <h2>12 种标签徽记</h2>
+    <div class="tags-grid" id="tags"></div>
+
+    <script>
+      const file = (id) => `pieces/piece-${String(id).padStart(2, "0")}.svg`;
+      const tagFile = (key) => `tags/tag-${key}.svg`;
+
+      async function loadRules() {
+        const response = await fetch("/api/rules");
+        return response.json();
+      }
+
+      function renderPieces(rules) {
+        const box = document.getElementById("pieces");
+        rules.characters.forEach((character) => {
+          const cell = document.createElement("div");
+          cell.className = "cell";
+          const row = document.createElement("div");
+          row.className = "row";
+          [32, 48, 96].forEach((size) => {
+            const img = document.createElement("img");
+            img.src = file(character.id);
+            img.width = size;
+            img.height = size;
+            img.alt = character.name;
+            row.appendChild(img);
+          });
+          const name = document.createElement("div");
+          name.className = "name";
+          name.textContent = character.name;
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = `${character.domain} · ${character.tag_name} · ${character.atk}/${character.hp} 先手 ${character.initiative}`;
+          const tagLine = document.createElement("div");
+          tagLine.className = "tagline";
+          if (character.tag !== "none") {
+            const icon = document.createElement("img");
+            icon.src = tagFile(character.tag);
+            icon.alt = character.tag_name;
+            tagLine.appendChild(icon);
+          }
+          cell.append(row, name, meta, tagLine);
+          box.appendChild(cell);
+        });
+      }
+
+      function renderCards(rules) {
+        const box = document.getElementById("cards");
+        [4, 10, 20, 8].forEach((id, index) => {
+          const character = rules.characters.find((item) => item.id === id);
+          const card = document.createElement("div");
+          card.className = "game-card" + (index === 0 ? " selected" : "");
+          card.innerHTML = `
+            <div class="top">
+              <img class="piece" src="${file(character.id)}" alt="${character.name}" />
+              ${character.tag !== "none" ? `<img src="${tagFile(character.tag)}" width="22" height="22" alt="${character.tag_name}" />` : ""}
+            </div>
+            <strong>${character.name}</strong>
+            <div class="stats"><span>ATK ${character.atk}</span><span>HP ${character.hp}</span><span>先手 ${character.initiative}</span></div>
+            <div class="meta" style="font-size:11px;color:var(--dim)">${character.tag_name}</div>
+          `;
+          box.appendChild(card);
+        });
+        // 被剥夺标签时的灰化效果
+        const greyed = document.createElement("div");
+        greyed.className = "game-card";
+        const character = rules.characters.find((item) => item.id === 6);
+        greyed.innerHTML = `
+          <div class="top">
+            <img class="piece is-desaturated" src="${file(character.id)}" alt="${character.name}" />
+          </div>
+          <strong>${character.name}</strong>
+          <div class="meta" style="font-size:11px;color:var(--dim)">标签被剥夺（灰化示例）</div>
+        `;
+        box.appendChild(greyed);
+      }
+
+      function renderTags(rules) {
+        const box = document.getElementById("tags");
+        rules.tags
+          .filter((tag) => tag.key !== "none")
+          .forEach((tag) => {
+            const cell = document.createElement("div");
+            cell.className = "tag-cell";
+            const icon = document.createElement("img");
+            icon.src = tagFile(tag.key);
+            icon.alt = tag.name;
+            const text = document.createElement("span");
+            text.textContent = `${tag.name} · ${tag.summary}`;
+            cell.append(icon, text);
+            box.appendChild(cell);
+          });
+      }
+
+      loadRules().then((rules) => {
+        renderPieces(rules);
+        renderCards(rules);
+        renderTags(rules);
+      });
+    </script>
+  </body>
+</html>
