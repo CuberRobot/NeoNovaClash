@@ -29,6 +29,7 @@
       </div>
       <div class="topbar-actions">
         <span id="conn-status" class="pill pill-warn">连接中…</span>
+        <button id="btn-sound" class="ghost" type="button">🔊 音效</button>
         <button id="btn-rules" class="ghost" type="button">规则</button>
       </div>
     </header>
@@ -122,20 +123,24 @@
         <div id="last-round-banner" class="banner hidden"></div>
         <div id="opponent-banner" class="banner warn hidden"></div>
 
-        <div class="prepare-grid">
-          <section class="panel">
+        <div id="prepare-grid" class="prepare-grid view-cards">
+          <section class="panel hand-panel">
             <header class="panel-head">
               <h2>角色池</h2>
-              <span class="hint">点击角色加入出击位，再点一次可取消</span>
+              <span class="hint">拖卡牌上阵 · 拖回手牌下阵 · 按 1~9 也能上阵/收回</span>
             </header>
-            <div id="pool-cards" class="cards"></div>
-            <div id="tag-note" class="tag-note hidden"></div>
+            <div id="hand" class="hand"></div>
+            <p class="hint">
+              卡牌上角数字是出击位序；「只能放第 1 位」的角色会自动排到最前面。
+              不习惯拖放就点右上角「切到按钮视图」。
+            </p>
           </section>
 
           <section class="panel">
             <header class="panel-head">
               <h2>出击阵容</h2>
               <div class="panel-actions">
+                <button id="btn-view" class="ghost small" type="button">切到按钮视图</button>
                 <button id="btn-review" class="ghost small hidden" type="button">上一局战报</button>
                 <button id="btn-undo" class="ghost small" type="button" disabled>撤销</button>
                 <button id="btn-clear" class="ghost small" type="button">清空</button>
@@ -144,7 +149,7 @@
             <div class="token-bar">
               <span class="token-label">增益筹码</span>
               <div id="bonus-tokens" class="tokens"></div>
-              <span class="hint">先点筹码，再点出击位；点位上的标记可以取消</span>
+              <span class="hint">先点筹码，再点出击位（可连续点多个位置）；再点一次同一筹码可取消；点位上的标记点一下可撤掉</span>
             </div>
             <ol id="slots" class="slots"></ol>
             <p class="hint">
@@ -178,31 +183,44 @@
             <span>第 <b id="battle-round">1</b> 局</span>
             <span class="divider">·</span>
             <span>比分 <b id="battle-score">0 : 0</b></span>
+            <span class="divider">·</span>
+            <span id="log-progress" class="muted">0 / 0</span>
           </div>
           <div class="playback">
             <button id="btn-pause" class="ghost small" type="button">暂停</button>
             <button id="btn-speed" class="ghost small" type="button">1×</button>
+            <button id="btn-next-event" class="ghost small" type="button">跳到关键节点</button>
+            <button id="btn-log" class="ghost small" type="button">展开战报</button>
             <button id="btn-skip" class="ghost small" type="button">跳到结果</button>
+            <button id="btn-replay" class="ghost small" type="button">重播</button>
           </div>
         </div>
-        <div class="battle-grid">
-          <section class="panel">
-            <header class="panel-head"><h2>战场</h2><span class="hint">血条会随战报推进实时变化</span></header>
-            <div class="teams">
-              <div class="team">
-                <p class="team-title" id="team-a-title">A 队（你）</p>
-                <div id="team-a" class="team-list"></div>
-              </div>
-              <div class="team">
-                <p class="team-title" id="team-b-title">B 队（对手）</p>
-                <div id="team-b" class="team-list"></div>
-              </div>
+
+        <div class="arena">
+          <div id="stage-banner" class="stage-banner hidden"></div>
+          <div class="stage">
+            <div class="stage-column">
+              <p class="team-title" id="team-a-title">你</p>
+              <div id="stage-a" class="stage-list"></div>
             </div>
-          </section>
-          <section class="panel log-panel">
-            <header class="panel-head"><h2>战报</h2><span class="hint" id="log-progress"></span></header>
-            <ol id="battle-log" class="battle-log"></ol>
-          </section>
+            <div class="stage-mid" aria-hidden="true"><span>VS</span></div>
+            <div class="stage-column">
+              <p class="team-title" id="team-b-title">对手</p>
+              <div id="stage-b" class="stage-list"></div>
+            </div>
+          </div>
+          <p class="hint stage-hint">
+            格子里的数字是出击位；头顶小图标是标签，血条外侧那条浅色是"刚掉了多少"。
+            空格键暂停回放，→ 跳到下一个关键节点。
+          </p>
+        </div>
+
+        <div id="battle-log-wrap" class="battle-log-wrap">
+          <header class="panel-head">
+            <h2>战报</h2>
+            <span class="hint">每一行都对应战场上的一次动作</span>
+          </header>
+          <ol id="battle-log" class="battle-log"></ol>
         </div>
       </section>
 
@@ -224,6 +242,11 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+    <!-- 无构建步骤：五个脚本按顺序挂到 window.NC 上 -->
+    <script src="/static/js/core.js?v={{ASSET_VERSION}}"></script>
+    <script src="/static/js/audio.js?v={{ASSET_VERSION}}"></script>
+    <script src="/static/js/prepare.js?v={{ASSET_VERSION}}"></script>
+    <script src="/static/js/battle.js?v={{ASSET_VERSION}}"></script>
     <script src="/static/js/app.js?v={{ASSET_VERSION}}"></script>
   </body>
 </html>
