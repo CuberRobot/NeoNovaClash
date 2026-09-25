@@ -111,8 +111,8 @@ frontend/                原生 HTML/CSS/JS 单页应用（无构建步骤）
 deploy/                  部署模板：systemd 服务、nginx 反代、一键更新脚本
 tools/                   开发工具：命令行对战、联机冒烟测试
 tests/                   引擎 / 规则 / 接口 / 联机流程测试
-docs/                    规则、架构、协议、部署、版本管理、路线图
-legacy/                  旧手写碎片归档（仅作参考，不参与构建）
+docs/                    规则、架构、协议、部署、运维、版本管理、路线图、玩法评估
+.ops/                    运维小工具（SSH 执行/上传，凭据只从环境变量与本机密钥读）
 ```
 
 分层原则：**core 不依赖 web，web 不写游戏规则**。
@@ -241,9 +241,17 @@ docker compose up --build -d
 
 ## 10. 历史归档
 
-`legacy/` 目录保存了最早手写的规则碎片（`NCinit/`、`Code/`）与说明，
-它们只作为设计参考，**不参与构建，也不被测试与静态检查覆盖**。
-被放弃的旧实现保存在本仓库的 `legacy/novaclash2` 分支中，可以随时检出对照。
+最早的规则讨论与手写碎片（`NCinit/`、`Code/`）已在 v0.4.2 清理，
+出处与演进过程记录在 [docs/项目历史.md](docs/项目历史.md)。
+
+被放弃的旧实现不在本仓库的任何分支里：它曾经放在 `CuberRobot/NovaClash2`
+（2026-07 的 5 个提交，`client/` + `server/`），该仓库已于 2026-09-25 停用——
+权威仓库只有 **`CuberRobot/NeoNovaClash`** 一个，详见 [docs/运维手册.md](docs/运维手册.md) §5.1。
+如果哪天需要翻旧实现对照，本地归档在 `.ops/archive/novaclash2-legacy.bundle`（不进版本库）：
+
+```bash
+git clone .ops/archive/novaclash2-legacy.bundle /tmp/novaclash2-legacy
+```
 
 ---
 
