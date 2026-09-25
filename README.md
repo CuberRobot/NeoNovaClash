@@ -218,7 +218,8 @@ docker compose up --build -d
 | [docs/部署指南.md](docs/部署指南.md) | venv / Docker / 反向代理 / 常见问题 |
 | [docs/宝塔面板部署.md](docs/宝塔面板部署.md) | 宝塔面板 + systemd + nginx 反代的完整线上部署记录 |
 | [docs/开发流程与版本管理.md](docs/开发流程与版本管理.md) | 分支模型、提交规范、测试门禁、回滚流程 |
-| [docs/开发路线图.md](docs/开发路线图.md) | 后续版本要做什么、优先级与验收标准 |
+| [docs/下一阶段规划.md](docs/下一阶段规划.md) | **接下来做什么**：现状数据、优先级、验收标准、明确不做什么、需要拍板的问题 |
+| [docs/开发路线图.md](docs/开发路线图.md) | 历史：已经做完的每个版本都做了什么 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
 | [docs/项目历史.md](docs/项目历史.md) | 项目从哪来、旧实现与手写碎片都放在哪 |
 
