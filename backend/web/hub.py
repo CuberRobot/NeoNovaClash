@@ -126,11 +126,87 @@ class GameHub:
         self.connections.pop(room.code, None)
         self.stats.closed += 1
 
+    # ------------------------------------------------------------ 运维日志
+    # 关键事件一律打成 `key=value` 的单行结构化日志，方便直接 grep：
+    #   昨天有多少人开房：  grep room_created   app.log | wc -l
+    #   昨天打完几局：      grep match_over     app.log | wc -l
+    #   人是从哪一步走的：  grep room_closed    app.log
+    # 日志只带昵称与房间号，不带 token 或任何私有对局数据。
+    def _room_summary(self, room: Room) -> str:
+        room_code = getattr(room, "code", "?")
+        return f"room={room_code} mode={room.mode.key}"
+
+    def _player_summary(self, room: Room) -> str:
+        try:
+            return " vs ".join(f"{p.name}{'(电脑)' if p.is_bot else ''}" for p in room.players)
+        except Exception:  # pragma: no cover - 日志不该反过来影响主流程
+            return "?"
+
+    def log_room_created(self, room: Room, *, source: str) -> None:
+        """公开的房间创建日志入口（建房 / 练习模式由 ws 层调用，匹配由 log_matched 调用）。"""
+
+        self._log_room_created(room, source=source)
+
+    def _log_room_created(self, room: Room, *, source: str) -> None:
+        """房间一建出来就记一笔（这时还没有玩家，所以只带来源与模式）。
+
+        玩家昵称在 `battle_start` / `match_over` / `room_closed` 里带上，
+        因为创建和"第一人坐下"是两件事，硬凑在一行只会得到空的名字。
+        """
+
+        logger.info(
+            "room_created %s source=%s prepare_timeout=%ss",
+            self._room_summary(room),
+            source,
+            room.prepare_timeout,
+        )
+
+    def _log_outgoing_events(self, room: Room, outgoings: list[Outgoing]) -> None:
+        """把房间产出的关键消息翻译成运维日志（战斗开始/结束、整场结束、房间关闭）。"""
+
+        for outgoing in outgoings:
+            kind = outgoing.message_type()
+            if kind == "battle_report":
+                result = outgoing.payload.get("result") or {}
+                logger.info(
+                    "battle_start %s round=%s seed=%s players=%s",
+                    self._room_summary(room),
+                    outgoing.payload.get("round_index"),
+                    result.get("seed"),
+                    self._player_summary(room),
+                )
+            elif kind == "game_over":
+                score = outgoing.payload.get("score") or []
+                history = outgoing.payload.get("history") or []
+                logger.info(
+                    "match_over %s winner=%s score=%s rounds=%s players=%s",
+                    self._room_summary(room),
+                    outgoing.payload.get("winner_seat"),
+                    " ".join(str(s) for s in score),
+                    len(history),
+                    self._player_summary(room),
+                )
+            # room_closed 统一由 _log_room_removed 记录（那条路径覆盖所有关房方式）
+
+    def _log_room_removed(self, room: Room) -> None:
+        """房间离开注册表时记录一次（`leave` / 掉线超时 / 空闲回收都会走到这里）。"""
+
+        if room.close_logged:
+            return
+        room.close_logged = True
+        logger.info(
+            "room_closed %s reason=%s rounds_played=%s",
+            self._room_summary(room),
+            room.closed_reason or "未说明",
+            len(room.history),
+        )
+
     async def dispatch(self, room: Room, outgoings: list[Outgoing]) -> None:
         """把房间产生的消息投递给对应玩家。"""
 
         if not outgoings:
             return
+        self._log_outgoing_events(room, outgoings)
         sockets = self.connections.get(room.code, {})
         for outgoing in outgoings:
             if outgoing.seat is None:
@@ -157,6 +233,7 @@ class GameHub:
         outgoings = room.close(f"{room.player_of(seat).name} 已离开，房间关闭")
         await self.dispatch(room, outgoings)
         self.drop_room(room)
+        self._log_room_removed(room)
 
     async def handle_disconnect(self, session: Session, websocket: WebSocket | None = None) -> None:
         """连接断开：先给重连宽限，房间保持存活；匹配队列里的玩家直接移除。
@@ -181,6 +258,24 @@ class GameHub:
         await self.dispatch(room, outgoings)
 
     # ------------------------------------------------------------ 随机匹配
+    def log_matchmaking_waiting(self, name: str, mode_key: str, queue_size: int) -> None:
+        logger.info(
+            "matchmaking_waiting player=%s mode=%s queue_size=%s",
+            name,
+            mode_key,
+            queue_size,
+        )
+
+    def log_matched(self, room: Room, first: str, second: str, wait_seconds: float) -> None:
+        self._log_room_created(room, source="matchmaking")
+        logger.info(
+            "matchmaking_matched %s pair=%s vs %s waited=%ss",
+            self._room_summary(room),
+            first,
+            second,
+            round(wait_seconds, 1),
+        )
+
     def enqueue(
         self,
         session: Session,
@@ -293,12 +388,19 @@ class GameHub:
                 try:
                     outgoings = room.tick(now)
                     if outgoings:
-                        if any(o.payload.get("type") == "battle_report" for o in outgoings):
+                        if any(o.message_type() == "battle_report" for o in outgoings):
                             self.stats.battles += 1
                         await self.dispatch(room, outgoings)
+                    # 房间被 tick 关掉（比如掉线超过宽限期）时没走 dispatch，这里补一次日志
+                    if room.is_closed:
+                        self._log_room_removed(room)
                     if room.is_closed or self._should_reap(room, now):
-                        await self.dispatch(room, room.close("房间长时间无活动，已自动关闭"))
+                        if not room.is_closed:
+                            await self.dispatch(
+                                room, room.close("房间长时间无活动，已自动关闭")
+                            )
                         self.drop_room(room)
+                        self._log_room_removed(room)
                 except Exception:  # pragma: no cover - 单个房间异常不应影响整体
                     logger.exception("房间 %s 推进失败", room.code)
 

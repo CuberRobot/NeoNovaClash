@@ -1,0 +1,22 @@
+# NeoNovaClash 应用日志轮转（systemd StandardOutput=append 写出来的那个文件）
+#
+# 安装：
+#   install -m 644 deploy/logrotate/neonovaclash /etc/logrotate.d/neonovaclash
+#   logrotate -d /etc/logrotate.d/neonovaclash     # 演练：只打印会做什么，不实际切
+#
+# 为什么不用 copytruncate：
+#   systemd 以 append 模式打开文件，`create` 之后 systemd 仍然持有旧 inode 的 fd，
+#   日志会继续写进已经改名的旧文件 —— 所以这里用 `copytruncate`，
+#   原文件被截断后同一个 fd 继续写入，服务不需要重启。
+#   代价是复制与截断之间可能丢几行日志，对调试来说可以接受。
+/www/wwwlogs/neonovaclash.app.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su www www
+    create 0640 www www
+}

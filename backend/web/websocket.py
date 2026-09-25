@@ -102,6 +102,7 @@ async def _create_room(websocket: WebSocket, hub: GameHub, session: Session, mes
         player, outgoings = room.join(message.name)
         hub.bind(room.code, player.seat, websocket)
         session.room_code, session.seat, session.name = room.code, player.seat, player.name
+        hub.log_room_created(room, source="create_room")
         await hub.dispatch(room, outgoings)
     except RoomError as exc:
         await websocket.send_json(protocol.error(str(exc), fatal=True))
@@ -146,9 +147,11 @@ async def _join_random(websocket: WebSocket, hub: GameHub, session: Session, mes
             await websocket.send_json(protocol.error(str(exc), fatal=True))
             return
         session.name = message.name
+        hub.log_matchmaking_waiting(message.name, mode.key, size)
         await websocket.send_json(protocol.matchmaking_waiting(queue_size=size, mode=mode.key))
         return
 
+    waited = time.monotonic() - opponent.since
     try:
         room = hub.create_room(mode)
         player_a, outgoings_a = room.join(opponent.name)
@@ -166,6 +169,7 @@ async def _join_random(websocket: WebSocket, hub: GameHub, session: Session, mes
     )
     session.room_code, session.seat, session.name = room.code, player_b.seat, player_b.name
     hub.stats.matched += 1
+    hub.log_matched(room, opponent.name, player_b.name, waited)
     await hub.dispatch(room, outgoings_a + outgoings_b)
 
 
@@ -186,6 +190,7 @@ async def _create_practice(websocket: WebSocket, hub: GameHub, session: Session,
         hub.bind(room.code, player.seat, websocket)
         session.room_code, session.seat, session.name = room.code, player.seat, player.name
         outgoings.extend(room.join_bot())          # 第二个人是电脑
+        hub.log_room_created(room, source="practice")
         await hub.dispatch(room, outgoings)
     except RoomError as exc:
         await websocket.send_json(protocol.error(str(exc), fatal=True))

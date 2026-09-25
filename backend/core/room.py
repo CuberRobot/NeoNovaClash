@@ -52,6 +52,16 @@ class Outgoing:
     seat: int | None
     payload: dict
 
+    def message_type(self) -> str | None:
+        """这条消息的协议类型（`type` 字段），运维日志与统计都靠它识别关键节点。
+
+        放成方法而不是普通字段，是为了让房间规则层始终是"纯数据"，
+        不引入日志或统计的概念。
+        """
+
+        kind = self.payload.get("type")
+        return kind if isinstance(kind, str) else None
+
 
 @dataclass
 class Player:
@@ -122,6 +132,7 @@ class Room:
         self.final_payload: dict | None = None  # 整场结果，供赛后重连恢复结算页
         self.history: list[dict] = []  # 每局结果摘要
         self.closed_reason = ""
+        self.close_logged = False  # 运维日志去重：一个房间的关闭只记录一次
         self.created_at = time.monotonic()
         self.last_activity = self.created_at
 
